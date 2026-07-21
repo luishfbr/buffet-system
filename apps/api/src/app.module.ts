@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { ItemsModule } from "./items/items.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PublicModule } from "./public/public.module.js";
+import { LeadsModule } from "./leads/leads.module.js";
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PublicModule } from "./public/public.module.js";
     ItemsModule,
     PackagesModule,
     PublicModule,
+    LeadsModule,
   ],
   controllers: [AppController],
 })

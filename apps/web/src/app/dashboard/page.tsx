@@ -56,8 +56,7 @@ export default function DashboardPage() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Os módulos de catálogo, negociações e financeiro chegam nas próximas
-        sprints.
+        O módulo financeiro chega na próxima sprint.
       </p>
     </div>
   );

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { itemTypeSchema, DISH_CATEGORIES } from "./domain.js";
+import { itemTypeSchema, leadStatusSchema, DISH_CATEGORIES } from "./domain.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
 export const moneySchema = z
@@ -73,3 +73,38 @@ export const createPublicLeadSchema = z.object({
 });
 
 export type CreatePublicLeadInput = z.infer<typeof createPublicLeadSchema>;
+
+// ============================================================
+// Sales funnel: negotiation management (RF19–RF22)
+// ============================================================
+
+/**
+ * Update a lead/negotiation from the internal panel. Every field is optional
+ * (partial update): status transitions (RF19), free-text notes/history (RF20),
+ * lost reason, and edits to the customer/event data. When packageId or
+ * guestCount change, the server recomputes totalValue.
+ */
+export const updateLeadSchema = z.object({
+  customerName: z.string().min(1, "Nome obrigatório").max(120).optional(),
+  customerEmail: z
+    .string()
+    .email("E-mail inválido")
+    .nullable()
+    .optional()
+    .or(z.literal("")),
+  customerPhone: z.string().min(8, "WhatsApp inválido").max(20).optional(),
+  eventDate: z.string().datetime().nullable().optional().or(z.literal("")),
+  guestCount: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100000)
+    .nullable()
+    .optional(),
+  packageId: z.string().nullable().optional(),
+  status: leadStatusSchema.optional(),
+  notes: z.string().max(5000).nullable().optional(),
+  lostReason: z.string().max(500).nullable().optional(),
+});
+
+export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
