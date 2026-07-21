@@ -145,6 +145,8 @@ export const payInstallmentSchema = z.object({
     .string()
     .url("Link do comprovante inválido")
     .max(2000)
+    // Defense-in-depth: only http(s) links (blocks javascript:/data: schemes).
+    .refine((u) => /^https?:\/\//i.test(u), "Use um link http(s)")
     .optional()
     .or(z.literal("")),
 });

@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @buffet/db generate",
     "db:migrate": "pnpm --filter @buffet/db migrate",
     "db:studio": "pnpm --filter @buffet/db studio",
+    "db:seed": "pnpm --filter @buffet/api seed",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
   "devDependencies": {
