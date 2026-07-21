@@ -54,7 +54,7 @@ pnpm dev                           # web:3000 + api:3333
 ## Roadmap (sprints)
 
 0. **Fundação** — monorepo, schema, auth/db packages, CI ✅
-1. Auth + Organização + RBAC + isolamento multi-tenant + convites
+1. **Auth + Organização + RBAC** + isolamento multi-tenant + convites ✅
 2. Catálogo (itens/bebidas/serviços/pacotes)
 3. Captação pública de leads (onboarding por slug)
 4. Funil de vendas (negociações)

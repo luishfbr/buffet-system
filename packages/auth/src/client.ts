@@ -8,6 +8,8 @@ import { organizationClient, adminClient } from "better-auth/client/plugins";
 export function createBuffetAuthClient(baseURL: string) {
   return createAuthClient({
     baseURL,
+    // The web app and API are on different origins; send session cookies.
+    fetchOptions: { credentials: "include" },
     plugins: [organizationClient(), adminClient()],
   });
 }

@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AppController } from "./app.controller.js";
 import { DatabaseModule } from "./database/database.module.js";
+import { AuthModule } from "./auth/auth.module.js";
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { DatabaseModule } from "./database/database.module.js";
       { name: "default", ttl: 60_000, limit: 100 },
     ]),
     DatabaseModule,
+    AuthModule,
   ],
   controllers: [AppController],
 })
