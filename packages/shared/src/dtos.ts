@@ -55,3 +55,21 @@ export const updatePackageSchema = z.object({
 
 export type CreatePackageInput = z.infer<typeof createPackageSchema>;
 export type UpdatePackageInput = z.infer<typeof updatePackageSchema>;
+
+// ============================================================
+// Public onboarding: pre-budget capture (RF18)
+// ============================================================
+
+export const createPublicLeadSchema = z.object({
+  slug: z.string().min(1),
+  customerName: z.string().min(1, "Informe seu nome").max(120),
+  customerEmail: z.string().email("E-mail inválido").optional().or(z.literal("")),
+  customerPhone: z.string().min(8, "Informe um WhatsApp válido").max(20),
+  eventDate: z.string().datetime().optional().or(z.literal("")),
+  guestCount: z.coerce.number().int().positive().max(100000).optional(),
+  packageId: z.string().optional(),
+  // Honeypot: must stay empty (RNF06). Bots tend to fill every field.
+  website: z.string().max(0).optional(),
+});
+
+export type CreatePublicLeadInput = z.infer<typeof createPublicLeadSchema>;
