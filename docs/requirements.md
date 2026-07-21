@@ -17,7 +17,7 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 
 - **Administrador (Plataforma):** Usuário global (role `admin` no Better-Auth) para gerenciar o ecossistema SaaS e auditar organizações.
 - **Proprietário (Tenant Owner):** Usuário com role `owner` na tabela `member`. Possui acesso total aos dados de sua própria organização, incluindo faturamento corporativo, dashboards financeiros, configurações de pacotes, relatórios e exclusão de registros.
-- **Funcionário (Tenant Member):** Usuário com role `member` na tabela `member`. Focado na operação comercial diária.
+- **Funcionário (Tenant Member):** Usuário com role `member` na tabela `member`. Focado na operação comercial diária. Possui visibilidade e edição completas sobre todas as negociações da organização — não há atribuição individual de vendedor no MVP (qualquer member pode acessar e atualizar qualquer negociação).
   - _Restrições estritas de segurança:_ Não visualiza totalizadores de faturamento da empresa, não possui permissão para deletar pratos, bebidas, pacotes ou registros financeiros, e não acessa painéis de auditoria.
 - **Cliente (Lead):** Usuário externo e não autenticado que acessa a interface de onboarding público para simulação e solicitação de pré-orçamentos.
 
@@ -28,9 +28,17 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 - **Controle financeiro manual:** Resolvido pelo Cronograma Base de Parcelas no módulo financeiro.
 - **Risco de overbooking:** Resolvido por alertas visuais de conflito de datas na agenda.
 
+## 🚫 Fora de Escopo (MVP)
+
+- **Notificação automática de novo lead:** O RF18 gera o registro no sistema, mas o MVP não envia notificação automática (e-mail, push ou painel) ao buffet quando um novo lead chega. Fica registrado como melhoria futura, não como lacuna do MVP.
+
 ---
 
 ## 🛠️ Requisitos Funcionais (RF)
+
+### Módulo de Cadastro da Organização (Tenant Onboarding)
+
+- **RF00 - Cadastro Self-Service da Organização:** O proprietário do buffet se cadastra de forma autônoma na plataforma e cria sua própria organização (nome + slug gerado automaticamente pelo plugin Organization do Better-Auth), assumindo o papel `owner` automaticamente. Não há criação manual de organizações por um administrador da plataforma no MVP.
 
 ### Módulo de Itens e Cardápio (CRUD Básico)
 
@@ -57,14 +65,14 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 ### Módulo de Captação e Onboarding Público (CRM Inbound)
 
 - **RF17 - Disponibilizar URL Pública de Onboarding:** O sistema expõe páginas públicas baseadas no slug gerado pelo plugin do Better-Auth no formato `https://buffetsystem.com{slug}`.
-- **RF18 - Capturar Pré-Orçamento via Formulário:** Página pública e responsiva onde o cliente preenche: nome, e-mail, WhatsApp (chave de rastreio), data pretendida do evento, número estimado de convidados e escolhe o pacote de interesse. O sistema calcula e exibe um valor estimado instantâneo para o cliente e gera um registro no sistema do buffet.
+- **RF18 - Capturar Pré-Orçamento via Formulário:** Página pública e responsiva onde o cliente preenche: nome, e-mail, WhatsApp (chave de rastreio), data pretendida do evento, número estimado de convidados e escolhe o pacote de interesse. O sistema calcula e exibe um valor estimado instantâneo para o cliente (`totalValue = pricePerPerson × guestCount`, sem seleção de itens avulsos nesta etapa pública) e gera um registro no sistema do buffet. Como o cliente acessa a página sem sessão autenticada, o `organizationId` do registro é resolvido a partir do slug presente na própria URL pública.
 
 ### Módulo de Gestão de Negociações (Funil de Vendas)
 
-- **RF19 - Listagem Dinâmica de Negociações:** Tela gerencial para o buffet visualizar leads em uma tabela avançada com filtros rápidos por status: `Novo (Lead)`, `Em Negociação`, `Formalizando`, `Aprovado` e `Perdido`.
+- **RF19 - Listagem Dinâmica de Negociações:** Tela gerencial para o buffet visualizar leads em uma tabela avançada com filtros rápidos por status: `Novo (Lead)`, `Em Negociação`, `Formalizando`, `Aprovado` e `Perdido`. A listagem é compartilhada entre todos os members da organização (sem filtro por vendedor responsável, conforme definido na seção de Atores).
 - **RF20 - Histórico de Interações:** Espaço de texto livre dentro da negociação para registrar anotações, ligações e detalhes combinados pelo WhatsApp, mantendo a rastreabilidade do atendimento.
 - **RF21 - Alerta Visual de Conflito de Agenda (Flexível):** Ao abrir ou editar uma negociação, o sistema verifica se já existem outros eventos salvos ou aprovados na mesma data e exibe um alerta gráfico em destaque na tela ("Atenção: Já existem X eventos nesta data"), sem bloquear o salvamento do registro.
-- **RF22 - Copiar Proposta/Contrato Textual:** O sistema gera um template textual pré-definido com os dados dinâmicos do cliente, valores e pacote escolhido. Disponibiliza um botão de "Copiar Texto" para que o vendedor possa colar diretamente no WhatsApp ou Word.
+- **RF22 - Copiar Proposta/Contrato Textual:** O sistema gera um template textual pré-definido com os dados dinâmicos do cliente, valores e pacote escolhido. Disponibiliza um botão de "Copiar Texto" para que o vendedor possa colar diretamente no WhatsApp ou Word. No MVP, o template é fixo (hardcoded) e igual para todas as organizações, apenas com variáveis dinâmicas interpoladas (nome do cliente, valor total, pacote, data do evento); a configuração de template por organização fica fora de escopo.
 
 ### Módulo Financeiro Simplificado
 
@@ -79,7 +87,8 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 - **RNF02 - Responsividade Móvel:** A interface administrativa deve ser responsiva para smartphones, e a página de Onboarding Público do Cliente (`RF18`) deve ser otimizada prioritariamente para ambiente mobile.
 - **RNF03 - Backup Periódico via Neon:** A persistência dos dados contará com as rotinas automatizadas de backup em nuvem oferecidas pela infraestrutura da Neon.
 - **RNF04 - Controle de Acesso Baseado em Funções (RBAC):** Restrição de endpoints no Nest.js através de guards que validam as roles do Better-Auth, bloqueando requisições financeiras e mutações de dados para quem for `member` (Funcionário).
-- **RNF05 - Isolamento Lógico Multi-tenant:** Toda query operacional de negócio executada pelo Drizzle ORM no Nest.js deve injetar explicitamente o identificador da organização na cláusula `where(eq(table.organizationId, session.activeOrganizationId))`.
+- **RNF05 - Isolamento Lógico Multi-tenant:** Toda query operacional de negócio executada pelo Drizzle ORM no Nest.js deve injetar explicitamente o identificador da organização na cláusula `where(eq(table.organizationId, session.activeOrganizationId))`. Para tabelas sem `organizationId` direto (ex: `financial_payments`), o isolamento é garantido via join com a tabela pai (`leads_budgets`).
+- **RNF06 - Proteção Básica Contra Spam no Formulário Público:** Por ser o único endpoint não autenticado do sistema, o formulário de captação (`RF18`) deve contar com uma camada mínima de proteção contra automação (honeypot field e/ou rate limit por IP).
 
 ---
 
