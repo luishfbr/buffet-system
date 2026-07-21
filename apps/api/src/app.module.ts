@@ -4,6 +4,8 @@ import { ThrottlerModule } from "@nestjs/throttler";
 import { AppController } from "./app.controller.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { ItemsModule } from "./items/items.module.js";
+import { PackagesModule } from "./packages/packages.module.js";
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { AuthModule } from "./auth/auth.module.js";
     ]),
     DatabaseModule,
     AuthModule,
+    ItemsModule,
+    PackagesModule,
   ],
   controllers: [AppController],
 })

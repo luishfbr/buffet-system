@@ -1,6 +1,7 @@
 import {
   createParamDecorator,
   ExecutionContext,
+  ForbiddenException,
   InternalServerErrorException,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -26,7 +27,7 @@ export const ActiveOrg = createParamDecorator(
     const req = ctx.switchToHttp().getRequest<Request & { auth?: AuthContext }>();
     const orgId = req.auth?.session.activeOrganizationId;
     if (!orgId) {
-      throw new InternalServerErrorException("No active organization");
+      throw new ForbiddenException("Nenhuma organização ativa na sessão");
     }
     return orgId;
   }

@@ -38,7 +38,9 @@ export function createAuth(config: CreateAuthConfig) {
     },
     plugins: [
       // Multi-tenancy: self-service org creation, member = 'owner' on create.
-      organization(),
+      // No transactional email in the MVP, so invitations are accepted via a
+      // copyable link and email verification is not required to accept.
+      organization({ requireEmailVerificationOnInvitation: false }),
       // Platform-level admin role (enabled only; no dedicated UI in MVP).
       admin(),
     ],
