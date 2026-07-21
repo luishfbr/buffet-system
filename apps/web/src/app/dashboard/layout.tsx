@@ -6,10 +6,12 @@ import Link from "next/link";
 import { authClient, useSession, signOut } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
-const NAV = [
+const NAV: { href: string; label: string; ownerOnly?: boolean }[] = [
   { href: "/dashboard", label: "Visão geral" },
   { href: "/dashboard/catalog", label: "Catálogo" },
   { href: "/dashboard/leads", label: "Negociações" },
+  // Owner-only: members cannot see billing (RNF04).
+  { href: "/dashboard/finance", label: "Financeiro", ownerOnly: true },
   { href: "/dashboard/members", label: "Membros" },
 ];
 
@@ -22,6 +24,9 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
   const { data: activeOrg } = authClient.useActiveOrganization();
+  const isOwner =
+    activeOrg?.members?.find((m) => m.userId === session?.user.id)?.role ===
+    "owner";
 
   useEffect(() => {
     if (!isPending && !session) router.replace("/login");
@@ -62,7 +67,7 @@ export default function DashboardLayout({
 
       <div className="flex flex-1 flex-col sm:flex-row">
         <nav className="flex gap-1 overflow-x-auto border-b p-2 sm:w-52 sm:flex-col sm:border-b-0 sm:border-r">
-          {NAV.map((item) => {
+          {NAV.filter((item) => !item.ownerOnly || isOwner).map((item) => {
             const active =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));

@@ -9,9 +9,11 @@ import {
   type LeadStatus,
 } from "@buffet/shared";
 import type { LeadDetail, Package } from "@/lib/types";
+import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SchedulePanel } from "@/components/finance/schedule-panel";
 
 /** Slice an ISO datetime to the `yyyy-MM-dd` a date input expects. */
 function toDateInput(iso: string | null): string {
@@ -29,6 +31,7 @@ export function LeadDetailForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
+  const { isOwner } = useRole();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -104,6 +107,7 @@ export function LeadDetailForm({
   }
 
   return (
+    <div className="flex flex-col gap-5">
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {/* RF21: visual overbooking alert — never blocks saving. */}
       {lead.conflictCount > 0 && (
@@ -241,5 +245,20 @@ export function LeadDetailForm({
         </div>
       </div>
     </form>
+
+    {/* RF23/RF24: financial schedule — owner-only (RNF04). Kept outside the
+        form so its buttons don't submit the negotiation. Uses the saved status,
+        so approve + save before generating the schedule. */}
+    {isOwner && (
+      <div className="flex flex-col gap-2 border-t pt-4">
+        <h3 className="text-sm font-semibold">Financeiro</h3>
+        <SchedulePanel
+          budgetId={lead.id}
+          leadStatus={lead.status}
+          totalValue={lead.totalValue}
+        />
+      </div>
+    )}
+    </div>
   );
 }

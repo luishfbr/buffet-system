@@ -4,6 +4,7 @@ import {
   fromCents,
   multiplyMoney,
   sumMoney,
+  splitInstallments,
   computeBudgetTotal,
   formatBRL,
 } from "./money.js";
@@ -35,6 +36,22 @@ describe("money helpers", () => {
 
   it("sums a schedule of installments (RF23)", () => {
     expect(sumMoney(["6000.00", "6000.00", "6000.00"])).toBe("18000.00");
+  });
+
+  it("splits a total into installments summing exactly to the total (RF23)", () => {
+    expect(splitInstallments("18000.00", 3)).toEqual([
+      "6000.00",
+      "6000.00",
+      "6000.00",
+    ]);
+    // Uneven split distributes remainder cents to the first installments.
+    const parts = splitInstallments("100.00", 3);
+    expect(parts).toEqual(["33.34", "33.33", "33.33"]);
+    expect(sumMoney(parts)).toBe("100.00");
+  });
+
+  it("split rejects a non-positive installment count", () => {
+    expect(() => splitInstallments("100.00", 0)).toThrow();
   });
 
   it("multiply rejects non-integer quantities", () => {

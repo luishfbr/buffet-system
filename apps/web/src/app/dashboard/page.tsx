@@ -56,7 +56,7 @@ export default function DashboardPage() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        O módulo financeiro chega na próxima sprint.
+        Use o menu para gerenciar catálogo, negociações e financeiro.
       </p>
     </div>
   );

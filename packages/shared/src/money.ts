@@ -43,6 +43,28 @@ export function sumMoney(values: Array<string | number>): string {
   return fromCents(values.reduce<number>((acc, v) => acc + toCents(v), 0));
 }
 
+/**
+ * Split a total into `count` installments whose sum is exactly the total (RF23).
+ * The remainder cents are distributed one-by-one to the first installments, so
+ * e.g. "100.00" / 3 -> ["33.34", "33.33", "33.33"].
+ */
+export function splitInstallments(
+  total: string | number,
+  count: number
+): string[] {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(`Installment count must be a positive integer: ${count}`);
+  }
+  const cents = toCents(total);
+  const base = Math.floor(cents / count);
+  let remainder = cents - base * count;
+  return Array.from({ length: count }, () => {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    return fromCents(base + extra);
+  });
+}
+
 /** Compute a lead/budget total: pricePerPerson × guestCount (RF18). */
 export function computeBudgetTotal(
   pricePerPerson: string | number,

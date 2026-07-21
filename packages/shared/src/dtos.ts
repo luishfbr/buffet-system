@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { itemTypeSchema, leadStatusSchema, DISH_CATEGORIES } from "./domain.js";
+import {
+  itemTypeSchema,
+  leadStatusSchema,
+  paymentMethodSchema,
+  DISH_CATEGORIES,
+} from "./domain.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
 export const moneySchema = z
@@ -108,3 +113,42 @@ export const updateLeadSchema = z.object({
 });
 
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
+
+// ============================================================
+// Financial module: payment schedule & settlement (RF23–RF24)
+// ============================================================
+
+/** A single installment: due date + amount (RF23). */
+export const installmentSchema = z.object({
+  dueDate: z.string().datetime("Data de vencimento inválida"),
+  amount: moneySchema,
+});
+
+/**
+ * Generate a payment schedule for an approved negotiation (RF23). One or more
+ * installments (entrada + parcelas), each with a due date and amount.
+ */
+export const createScheduleSchema = z.object({
+  installments: z
+    .array(installmentSchema)
+    .min(1, "Informe ao menos uma parcela")
+    .max(60),
+});
+
+/**
+ * Settle an installment (RF24): mark as paid, record the method and an optional
+ * receipt link (link-only in the MVP — no file storage).
+ */
+export const payInstallmentSchema = z.object({
+  paymentMethod: paymentMethodSchema,
+  receiptUrl: z
+    .string()
+    .url("Link do comprovante inválido")
+    .max(2000)
+    .optional()
+    .or(z.literal("")),
+});
+
+export type InstallmentInput = z.infer<typeof installmentSchema>;
+export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
+export type PayInstallmentInput = z.infer<typeof payInstallmentSchema>;

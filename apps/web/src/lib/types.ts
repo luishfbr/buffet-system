@@ -1,4 +1,4 @@
-import type { ItemType, LeadStatus } from "@buffet/shared";
+import type { ItemType, LeadStatus, PaymentStatus } from "@buffet/shared";
 
 /** Catalog entities as returned by the API (dates serialized as strings). */
 export interface Item {
@@ -48,4 +48,31 @@ export interface Lead {
 export interface LeadDetail extends Lead {
   packageName: string | null;
   conflictCount: number;
+}
+
+/** A financial installment (RF23/RF24). */
+export interface FinancialPayment {
+  id: string;
+  budgetId: string;
+  dueDate: string;
+  amount: string;
+  status: PaymentStatus;
+  paymentMethod: string | null;
+  paidAt: string | null;
+  receiptUrl: string | null;
+  createdAt: string;
+}
+
+/** Owner-only billing totals + pending installments (RF23/RF24). */
+export interface FinanceSummary {
+  receivable: string;
+  received: string;
+  pending: {
+    id: string;
+    budgetId: string;
+    customerName: string;
+    dueDate: string;
+    amount: string;
+    status: string;
+  }[];
 }
