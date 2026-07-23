@@ -1,27 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ConciergeBell,
+  Package as PackageIcon,
+  UtensilsCrossed,
+  Wine,
+  type LucideIcon,
+} from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatBRL, type ItemType } from "@buffet/shared";
 import type { Item, Package } from "@/lib/types";
 import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { Tabs } from "@/components/ui/tabs";
 import { ItemForm } from "@/components/catalog/item-form";
 import { PackageForm } from "@/components/catalog/package-form";
 
 type Tab = ItemType | "packages";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "dish", label: "Pratos" },
-  { key: "drink", label: "Bebidas" },
-  { key: "service", label: "Serviços" },
-  { key: "packages", label: "Pacotes" },
+const TABS: { key: Tab; label: string; singular: string; icon: LucideIcon }[] = [
+  { key: "dish", label: "Pratos", singular: "prato", icon: UtensilsCrossed },
+  { key: "drink", label: "Bebidas", singular: "bebida", icon: Wine },
+  { key: "service", label: "Serviços", singular: "serviço", icon: ConciergeBell },
+  { key: "packages", label: "Pacotes", singular: "pacote", icon: PackageIcon },
 ];
 
 export default function CatalogPage() {
   const { isOwner } = useRole();
   const [tab, setTab] = useState<Tab>("dish");
+  const [query, setQuery] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +75,33 @@ export default function CatalogPage() {
     }
   }
 
-  const visibleItems = items.filter((i) => i.type === tab);
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (name: string) => !q || name.toLowerCase().includes(q);
+
+  const active = TABS.find((t) => t.key === tab)!;
+  const visibleItems = useMemo(
+    () => items.filter((i) => i.type === tab && matchesQuery(i.name)),
+    [items, tab, q]
+  );
+  const visiblePackages = useMemo(
+    () => packages.filter((p) => matchesQuery(p.name)),
+    [packages, q]
+  );
+
+  const counts = useMemo(
+    () => ({
+      dish: items.filter((i) => i.type === "dish").length,
+      drink: items.filter((i) => i.type === "drink").length,
+      service: items.filter((i) => i.type === "service").length,
+      packages: packages.length,
+    }),
+    [items, packages]
+  );
+
+  const createActive = () =>
+    setModal(
+      tab === "packages" ? { kind: "package" } : { kind: "item", type: tab }
+    );
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,40 +112,37 @@ export default function CatalogPage() {
             Pratos, bebidas, serviços e pacotes do seu buffet.
           </p>
         </div>
-        <Button
-          onClick={() =>
-            setModal(
-              tab === "packages"
-                ? { kind: "package" }
-                : { kind: "item", type: tab }
-            )
-          }
-        >
-          Novo
-        </Button>
+        <Button onClick={createActive}>Novo {active.singular}</Button>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t.key
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        items={TABS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          icon: t.icon,
+          count: counts[t.key],
+        }))}
+        value={tab}
+        onChange={setTab}
+        label="Tipo de item do catálogo"
+      />
+
+      <Input
+        type="search"
+        aria-label="Buscar no catálogo por nome"
+        placeholder="Buscar por nome..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        className="max-w-sm"
+      />
 
       {loading ? (
         <p className="text-muted-foreground">Carregando...</p>
       ) : tab === "packages" ? (
         <CatalogTable
-          rows={packages}
+          rows={visiblePackages}
           columns={["Nome", "Preço/convidado", "Status"]}
           render={(p) => [
             p.name,
@@ -119,7 +152,13 @@ export default function CatalogPage() {
           onEdit={(p) => setModal({ kind: "package", pkg: p })}
           onToggle={togglePackage}
           onDelete={isOwner ? (p) => removeEntity(`/packages/${p.id}`) : undefined}
-          emptyLabel="Nenhum pacote cadastrado."
+          empty={
+            <EmptyState
+              searching={q.length > 0}
+              singular={active.singular}
+              onCreate={createActive}
+            />
+          }
         />
       ) : (
         <CatalogTable
@@ -146,7 +185,13 @@ export default function CatalogPage() {
           onEdit={(it) => setModal({ kind: "item", type: it.type, item: it })}
           onToggle={toggleItem}
           onDelete={isOwner ? (it) => removeEntity(`/items/${it.id}`) : undefined}
-          emptyLabel="Nenhum item nesta categoria."
+          empty={
+            <EmptyState
+              searching={q.length > 0}
+              singular={active.singular}
+              onCreate={createActive}
+            />
+          }
         />
       )}
 
@@ -197,6 +242,33 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+function EmptyState({
+  searching,
+  singular,
+  onCreate,
+}: {
+  searching: boolean;
+  singular: string;
+  onCreate: () => void;
+}) {
+  if (searching)
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        Nenhum resultado para a busca. Ajuste os termos e tente de novo.
+      </div>
+    );
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-8 text-center">
+      <p className="text-sm text-muted-foreground">
+        Nenhum {singular} cadastrado ainda.
+      </p>
+      <Button size="sm" onClick={onCreate}>
+        Novo {singular}
+      </Button>
+    </div>
+  );
+}
+
 function CatalogTable<T extends { id: string; isActive: boolean }>({
   rows,
   columns,
@@ -204,7 +276,7 @@ function CatalogTable<T extends { id: string; isActive: boolean }>({
   onEdit,
   onToggle,
   onDelete,
-  emptyLabel,
+  empty,
 }: {
   rows: T[];
   columns: string[];
@@ -212,15 +284,14 @@ function CatalogTable<T extends { id: string; isActive: boolean }>({
   onEdit: (row: T) => void;
   onToggle: (row: T) => void;
   onDelete?: (row: T) => void;
-  emptyLabel: string;
+  empty: React.ReactNode;
 }) {
-  if (rows.length === 0)
-    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>;
+  if (rows.length === 0) return <>{empty}</>;
 
   return (
     <div className="overflow-x-auto rounded-md border">
-      <table className="w-full text-sm">
-        <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+      <table className="w-full text-sm tabular-nums">
+        <thead className="sticky top-0 border-b bg-muted/40 text-left text-muted-foreground">
           <tr>
             {columns.map((c) => (
               <th key={c} className="px-4 py-2 font-medium">
@@ -232,7 +303,10 @@ function CatalogTable<T extends { id: string; isActive: boolean }>({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="border-b last:border-b-0">
+            <tr
+              key={row.id}
+              className="border-b transition-colors last:border-b-0 hover:bg-accent/50"
+            >
               {render(row).map((cell, i) => (
                 <td key={i} className="px-4 py-2">
                   {cell}
