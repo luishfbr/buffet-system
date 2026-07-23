@@ -129,11 +129,17 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
   (`dish|drink|service|packages`), state `modal` union abrindo o form certo no `Modal`. Forms são
   self-contained, recebem `onSaved`/`onCancel`, e decidem create-vs-edit pela presença de uma prop
   opcional (`item?`/`pkg?`).
-- **Funil** (`dashboard/leads/` + `components/leads/lead-detail.tsx`): **tabela** (não kanban) com
-  filtro por status (itera `LEAD_STATUSES`/`LEAD_STATUS_LABELS`) + busca client-side (`useMemo`).
-  `LeadDetailForm` mostra o banner de conflito de agenda (`conflictCount`, RF21, não bloqueia), a
-  textarea de notas (RF20), o botão "Copiar proposta" → clipboard (RF22), e embute o `SchedulePanel`
-  do financeiro **se `isOwner`**.
+- **Funil** (`dashboard/leads/` + `components/leads/*`): duas visões alternadas por um `Tabs`
+  (segmented control) **Tabela / Kanban**, ambas com a mesma busca client-side (`useMemo`). A
+  **Tabela** mantém o filtro por status (itera `LEAD_STATUSES`/`LEAD_STATUS_LABELS`); o **Kanban**
+  (`lead-kanban.tsx`, `@dnd-kit/core`) tem uma coluna por status e arrasta o card para mudar o status
+  via `PATCH /leads/:id { status }` (update otimista + `onChanged()`/refetch; reverte em erro). Como
+  o `load()` do kanban busca **todos** os status (`/leads` sem filtro), o filtro por status fica só na
+  Tabela. Arrastar para **"Perdido"** abre um `Modal` pedindo o motivo (`lostReason`) antes de
+  confirmar. Clicar num card abre o mesmo `LeadDetailForm` da Tabela. `LeadDetailForm` mostra o banner
+  de conflito de agenda (`conflictCount`, RF21, não bloqueia — só vem do `GET /leads/:id`), a textarea
+  de notas (RF20), o botão "Copiar proposta" → clipboard (RF22), e embute o `SchedulePanel` do
+  financeiro **se `isOwner`**.
 - **Financeiro** (`components/finance/*` + `dashboard/finance/page.tsx`): `SchedulePanel` só habilita
   em `leadStatus === "aprovado"`, gera parcelas iguais client-side com `splitInstallments(total, n)`,
   e dá baixa via `PayForm` (`PATCH /finance/payments/:id/pay`). A página Finance mostra KPIs
@@ -143,6 +149,9 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 
 - **Sem store global e sem context providers** (nada de Redux/Zustand/context custom). O único estado
   "global" é o interno do Better-Auth via os hooks do `authClient`.
+- **Dependências de UI enxutas:** além de shadcn/lucide, a única lib de UI é **`@dnd-kit/core`**
+  (drag-and-drop do kanban do funil, com sensores de ponteiro e teclado). Prefira resolver com o que
+  já existe antes de adicionar libs.
 - [`next.config.ts`](next.config.ts): só `reactStrictMode`. Workspace packages já vêm compilados em
   ESM → **sem `transpilePackages`**.
 - Base da API lida inline: `process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"` (em `lib/api.ts`,

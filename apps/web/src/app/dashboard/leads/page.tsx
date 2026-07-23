@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Columns3, Table as TableIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   LEAD_STATUSES,
@@ -12,9 +13,12 @@ import type { Lead, Package } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { Tabs } from "@/components/ui/tabs";
 import { LeadDetailForm } from "@/components/leads/lead-detail";
+import { LeadKanban } from "@/components/leads/lead-kanban";
 
 type Filter = LeadStatus | "all";
+type View = "table" | "kanban";
 
 const STATUS_BADGE: Record<LeadStatus, "default" | "secondary" | "outline" | "muted"> = {
   novo: "default",
@@ -33,6 +37,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function LeadsPage() {
+  const [view, setView] = useState<View>("table");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -42,8 +47,11 @@ export default function LeadsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    // O kanban precisa de todos os status; a tabela respeita o filtro ativo.
     const path =
-      filter === "all" ? "/leads" : `/leads?status=${filter}`;
+      view === "kanban" || filter === "all"
+        ? "/leads"
+        : `/leads?status=${filter}`;
     const [l, p] = await Promise.all([
       api.get<Lead[]>(path),
       api.get<Package[]>("/packages?includeInactive=true"),
@@ -51,7 +59,7 @@ export default function LeadsPage() {
     setLeads(l);
     setPackages(p);
     setLoading(false);
-  }, [filter]);
+  }, [view, filter]);
 
   useEffect(() => {
     load().catch(() => setLoading(false));
@@ -75,38 +83,57 @@ export default function LeadsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Negociações</h1>
-        <p className="text-muted-foreground">
-          Acompanhe seus leads do primeiro contato ao fechamento.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Negociações</h1>
+          <p className="text-muted-foreground">
+            Acompanhe seus leads do primeiro contato ao fechamento.
+          </p>
+        </div>
+        <Tabs
+          items={[
+            { key: "table", label: "Tabela", icon: TableIcon },
+            { key: "kanban", label: "Kanban", icon: Columns3 },
+          ]}
+          value={view}
+          onChange={setView}
+          label="Modo de visualização das negociações"
+        />
       </div>
 
-      <div className="flex flex-wrap gap-1 border-b">
-        {filters.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-              filter === f.key
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {view === "table" && (
+        <div className="flex flex-wrap gap-1 border-b">
+          {filters.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+                filter === f.key
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Input
+        type="search"
+        aria-label="Buscar negociações por nome, WhatsApp ou e-mail"
         placeholder="Buscar por nome, WhatsApp ou e-mail..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        autoComplete="off"
         className="max-w-sm"
       />
 
       {loading ? (
         <p className="text-muted-foreground">Carregando...</p>
+      ) : view === "kanban" ? (
+        <LeadKanban leads={visible} onOpenLead={setOpenId} onChanged={load} />
       ) : visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Nenhuma negociação encontrada.

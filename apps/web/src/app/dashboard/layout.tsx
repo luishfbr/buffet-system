@@ -86,7 +86,10 @@ export default function DashboardLayout({
             );
           })}
         </nav>
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        {/* min-w-0: permite ao main encolher abaixo do conteúdo, contendo o
+            scroll-x de áreas largas (ex.: o kanban) dentro delas em vez de
+            empurrar o layout inteiro. */}
+        <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );
