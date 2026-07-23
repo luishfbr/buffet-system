@@ -3,6 +3,7 @@ import {
   createItemSchema,
   createPackageSchema,
   createPublicLeadSchema,
+  payInstallmentSchema,
   moneySchema,
 } from "./dtos.js";
 
@@ -67,6 +68,26 @@ describe("public lead DTO (RF18 / RNF06)", () => {
   it("requires name and phone", () => {
     expect(
       createPublicLeadSchema.safeParse({ slug: "x", customerName: "" }).success
+    ).toBe(false);
+  });
+});
+
+describe("payInstallmentSchema (RF24)", () => {
+  it("accepts an http(s) receipt link", () => {
+    expect(
+      payInstallmentSchema.safeParse({
+        paymentMethod: "pix",
+        receiptUrl: "https://comprovante.example/abc",
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a non-http scheme (defense-in-depth)", () => {
+    expect(
+      payInstallmentSchema.safeParse({
+        paymentMethod: "pix",
+        receiptUrl: "javascript:alert(1)",
+      }).success
     ).toBe(false);
   });
 });
