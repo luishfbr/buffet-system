@@ -4,14 +4,8 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { authClient, useSession } from "@/lib/auth-client";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 export default function AcceptInvitePage({
   params,
@@ -44,39 +38,52 @@ export default function AcceptInvitePage({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Convite para equipe</CardTitle>
-          <CardDescription>
-            Você foi convidado para participar de uma organização.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {isPending ? (
-            <p className="text-muted-foreground">Carregando...</p>
-          ) : session ? (
-            <>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button onClick={handleAccept} disabled={loading}>
-                {loading ? "Entrando..." : "Aceitar convite"}
-              </Button>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Faça{" "}
-              <Link href="/login" className="text-primary hover:underline">
-                login
-              </Link>{" "}
-              ou{" "}
-              <Link href="/signup" className="text-primary hover:underline">
-                crie uma conta
-              </Link>{" "}
-              com o e-mail convidado e volte a este link para aceitar.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </main>
+    <AuthShell
+      eyebrow="Convite de equipe"
+      title="Você foi convidado para uma equipe."
+      subtitle="Aceite para gerenciar orçamentos, funil e financeiro junto ao time."
+    >
+      <div className="flex flex-col gap-1.5">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">
+          Convite para equipe
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Você foi convidado para participar de uma organização.
+        </p>
+      </div>
+      <div className="mt-6 flex flex-col gap-4">
+        {isPending ? (
+          <p className="text-sm text-muted-foreground">Carregando...</p>
+        ) : session ? (
+          <>
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+            <Button
+              onClick={handleAccept}
+              variant="brand"
+              size="lg"
+              disabled={loading}
+            >
+              {loading ? "Entrando..." : "Aceitar convite"}
+            </Button>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Faça{" "}
+            <Link href="/login" className="text-brand hover:underline">
+              login
+            </Link>{" "}
+            ou{" "}
+            <Link href="/signup" className="text-brand hover:underline">
+              crie uma conta
+            </Link>{" "}
+            com o e-mail convidado e volte a este link para aceitar.
+          </p>
+        )}
+      </div>
+    </AuthShell>
   );
 }

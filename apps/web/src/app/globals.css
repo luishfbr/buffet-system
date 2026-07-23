@@ -4,42 +4,48 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Neutros quentes (hue ~60-85, chroma baixíssimo) — foge do cinza chroma-0 */
+  --background: oklch(0.985 0.004 85);
+  --foreground: oklch(0.19 0.012 60);
+  --card: oklch(1 0.002 85);
+  --card-foreground: oklch(0.19 0.012 60);
+  --primary: oklch(0.22 0.012 60);
+  --primary-foreground: oklch(0.985 0.004 85);
+  --secondary: oklch(0.955 0.008 85);
+  --secondary-foreground: oklch(0.22 0.012 60);
+  --muted: oklch(0.955 0.008 85);
+  --muted-foreground: oklch(0.52 0.012 60);
+  --accent: oklch(0.955 0.008 85);
+  --accent-foreground: oklch(0.22 0.012 60);
+  /* Acento de marca — âmbar/dourado, usado só onde é deliberado (CTAs, eyebrow) */
+  --brand: oklch(0.78 0.155 70);
+  --brand-foreground: oklch(0.2 0.02 65);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.9 0.006 85);
+  --input: oklch(0.9 0.006 85);
+  --ring: oklch(0.78 0.155 70);
   --radius: 0.625rem;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.17 0.012 60);
+  --foreground: oklch(0.96 0.006 85);
+  --card: oklch(0.21 0.012 60);
+  --card-foreground: oklch(0.96 0.006 85);
+  --primary: oklch(0.96 0.006 85);
+  --primary-foreground: oklch(0.22 0.012 60);
+  --secondary: oklch(0.24 0.012 60);
+  --secondary-foreground: oklch(0.96 0.006 85);
+  --muted: oklch(0.24 0.012 60);
+  --muted-foreground: oklch(0.72 0.01 85);
+  --accent: oklch(0.24 0.012 60);
+  --accent-foreground: oklch(0.96 0.006 85);
+  --brand: oklch(0.8 0.16 70);
+  --brand-foreground: oklch(0.2 0.02 65);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.8 0.16 70);
 }
 
 @theme inline {
@@ -55,6 +61,8 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -62,6 +70,9 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-geist-sans), sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 * {
@@ -71,5 +82,54 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
+  font-family: var(--font-sans);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Assinatura do herói: pipeline revela um estágio por vez ao carregar */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes grow-line {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-rise-in {
+  opacity: 0;
+  animation: rise-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-grow-line {
+  transform-origin: left;
+  animation: grow-line 0.7s cubic-bezier(0.65, 0, 0.35, 1) forwards;
 }

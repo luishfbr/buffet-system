@@ -42,7 +42,7 @@ pnpm db:migrate                    # aplica no banco
 pnpm dev                           # web:3000 + api:3333
 
 # 5. (Opcional) Dados de demonstração
-set -a; . .env; set +a             # exporta DATABASE_URL etc. no shell
+pnpm build                         # garante apps/api/dist/seed.js
 pnpm db:seed                       # cria org demo + catálogo + leads + parcelas
 ```
 
@@ -67,7 +67,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 | `pnpm build` | Build de todos os pacotes/apps (ordenado pelo Turbo) |
 | `pnpm lint` / `pnpm typecheck` / `pnpm test` | Verificações |
 | `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:studio` | Drizzle Kit |
-| `pnpm db:seed` | Popula dados de demonstração (requer `.env` no shell) |
+| `pnpm db:seed` | Popula dados de demonstração (carrega `.env` via dotenv-cli) |
 
 ## Cobertura de requisitos
 
