@@ -19,11 +19,23 @@ export interface Package {
   description: string | null;
   pricePerPerson: string;
   isActive: boolean;
+  sortOrder: number;
+  isFeatured: boolean;
+  createdAt: string;
+}
+
+/** Uma foto da galeria do pacote (RF28). */
+export interface PackageImage {
+  id: string;
+  packageId: string;
+  url: string;
+  sortOrder: number;
   createdAt: string;
 }
 
 export interface PackageWithItems extends Package {
   itemIds: string[];
+  images: PackageImage[];
 }
 
 /** A lead/negotiation in the sales funnel (RF19). */

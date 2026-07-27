@@ -10,6 +10,8 @@ const NAV: { href: string; label: string; ownerOnly?: boolean }[] = [
   { href: "/dashboard", label: "Visão geral" },
   { href: "/dashboard/catalog", label: "Catálogo" },
   { href: "/dashboard/leads", label: "Negociações" },
+  // Owner-only: a página pública é a vitrine do buffet (RF25–RF27).
+  { href: "/dashboard/pagina", label: "Página pública", ownerOnly: true },
   // Owner-only: members cannot see billing (RNF04).
   { href: "/dashboard/finance", label: "Financeiro", ownerOnly: true },
   { href: "/dashboard/members", label: "Membros" },

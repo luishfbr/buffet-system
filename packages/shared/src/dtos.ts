@@ -3,7 +3,17 @@ import {
   itemTypeSchema,
   leadStatusSchema,
   paymentMethodSchema,
+  publicTemplateSchema,
+  publicThemeSchema,
+  brandColorSchema,
+  uploadScopeSchema,
   DISH_CATEGORIES,
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  MAX_PACKAGE_IMAGES,
+  type PublicTemplate,
+  type PublicTheme,
+  type BrandColor,
 } from "./domain.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
@@ -48,6 +58,9 @@ export const createPackageSchema = z.object({
   pricePerPerson: moneySchema,
   itemIds: z.array(z.string()).default([]),
   isActive: z.boolean().optional(),
+  // RF26: posição e destaque na vitrine da página pública.
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  isFeatured: z.boolean().optional(),
 });
 
 export const updatePackageSchema = z.object({
@@ -56,10 +69,18 @@ export const updatePackageSchema = z.object({
   pricePerPerson: moneySchema.optional(),
   itemIds: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  isFeatured: z.boolean().optional(),
+});
+
+/** Nova ordem dos pacotes na vitrine pública (RF26) — ids na sequência desejada. */
+export const reorderPackagesSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, "Informe a nova ordem"),
 });
 
 export type CreatePackageInput = z.infer<typeof createPackageSchema>;
 export type UpdatePackageInput = z.infer<typeof updatePackageSchema>;
+export type ReorderPackagesInput = z.infer<typeof reorderPackagesSchema>;
 
 // ============================================================
 // Public onboarding: pre-budget capture (RF18)
@@ -154,3 +175,198 @@ export const payInstallmentSchema = z.object({
 export type InstallmentInput = z.infer<typeof installmentSchema>;
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
 export type PayInstallmentInput = z.infer<typeof payInstallmentSchema>;
+
+// ============================================================
+// Public page: customization & image upload (RF25–RF28 / RNF07)
+// ============================================================
+
+/**
+ * URL de uma imagem já hospedada no bucket. O formato é validado aqui; que a
+ * URL pertence ao bucket **e ao prefixo da própria organização** é verificado
+ * no servidor (`UploadsService.assertOwnedAssetUrl`) — este schema sozinho não
+ * impede apontar para um host qualquer.
+ */
+export const assetUrlSchema = z
+  .string()
+  .url("Link de imagem inválido")
+  .max(2000)
+  // Defense-in-depth: only http(s) links (blocks javascript:/data: schemes).
+  .refine((u) => /^https?:\/\//i.test(u), "Use um link http(s)");
+
+/**
+ * Campo de texto opcional vindo de formulário. `undefined` = não enviado (o
+ * update parcial não mexe nele); `""` ou `null` = o usuário limpou o campo.
+ */
+const optionalText = (max: number, message?: string) =>
+  z
+    .string()
+    .max(max, message)
+    .nullable()
+    .optional()
+    .transform((v) =>
+      v === undefined ? undefined : v === null ? null : v.trim() || null
+    );
+
+const optionalPhone = (label: string) =>
+  optionalText(20, `${label} muito longo`).refine(
+    (v) => v == null || v.replace(/\D/g, "").length >= 8,
+    `${label} inválido`
+  );
+
+const optionalAssetUrl = z
+  .union([assetUrlSchema, z.literal(""), z.null()])
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v || null));
+
+/** Personalização da página pública `/{slug}` (RF25–RF27). Update parcial. */
+export const updatePageSettingsSchema = z.object({
+  template: publicTemplateSchema.optional(),
+  theme: publicThemeSchema.optional(),
+  brandColor: brandColorSchema.optional(),
+  logoUrl: optionalAssetUrl,
+  coverUrl: optionalAssetUrl,
+  headline: optionalText(120, "Título muito longo"),
+  subheadline: optionalText(200, "Subtítulo muito longo"),
+  about: optionalText(1000, "Texto muito longo"),
+  ctaLabel: optionalText(40, "Rótulo muito longo"),
+  showPrices: z.boolean().optional(),
+  whatsapp: optionalPhone("WhatsApp"),
+  phone: optionalPhone("Telefone"),
+  email: optionalText(160).refine(
+    (v) => v == null || z.string().email().safeParse(v).success,
+    "E-mail inválido"
+  ),
+  // Aceita "@perfil" ou a URL completa; guarda só o nome de usuário.
+  instagram: optionalText(60, "Perfil muito longo").transform((v) =>
+    v == null
+      ? v
+      : v
+          .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+          .replace(/^@+/, "")
+          .replace(/\/+$/, "") || null
+  ),
+  city: optionalText(120, "Cidade muito longa"),
+});
+
+export type UpdatePageSettingsInput = z.infer<typeof updatePageSettingsSchema>;
+
+/** Pedido de URL pré-assinada para upload direto ao bucket (RNF07). */
+export const presignUploadSchema = z.object({
+  scope: uploadScopeSchema,
+  contentType: z.enum(ALLOWED_IMAGE_TYPES, {
+    errorMap: () => ({ message: "Formato não suportado. Use JPG, PNG ou WebP." }),
+  }),
+  size: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_IMAGE_BYTES, "Imagem maior que 5 MB"),
+});
+
+export const deleteAssetSchema = z.object({ url: assetUrlSchema });
+
+export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
+export type DeleteAssetInput = z.infer<typeof deleteAssetSchema>;
+
+/** Galeria de fotos do pacote (RF28). */
+export const addPackageImageSchema = z.object({ url: assetUrlSchema });
+
+export const reorderPackageImagesSchema = z.object({
+  ids: z
+    .array(z.string().min(1))
+    .min(1, "Informe a nova ordem")
+    .max(MAX_PACKAGE_IMAGES),
+});
+
+export type AddPackageImageInput = z.infer<typeof addPackageImageSchema>;
+export type ReorderPackageImagesInput = z.infer<
+  typeof reorderPackageImagesSchema
+>;
+
+// ============================================================
+// Public page: response contract (RF17/RF18 + RF25–RF28)
+// ============================================================
+
+/**
+ * Payload de `GET /public/orgs/:slug` — contrato único entre a API e a página
+ * `/{slug}`. Dinheiro como string decimal, datas em ISO (ver CLAUDE.md).
+ */
+export interface PublicPagePackage {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Ausente quando o buffet optou por não exibir preços (`showPrices: false`). */
+  pricePerPerson: string | null;
+  isFeatured: boolean;
+  images: string[];
+  /** Nomes dos itens inclusos, para o buffet mostrar o que compõe o pacote. */
+  includedItems: string[];
+}
+
+export interface PublicPageSettings {
+  template: PublicTemplate;
+  theme: PublicTheme;
+  brandColor: BrandColor;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  headline: string | null;
+  subheadline: string | null;
+  about: string | null;
+  ctaLabel: string | null;
+  showPrices: boolean;
+  whatsapp: string | null;
+  phone: string | null;
+  email: string | null;
+  instagram: string | null;
+  city: string | null;
+}
+
+export interface PublicPageData {
+  id: string;
+  name: string;
+  slug: string;
+  settings: PublicPageSettings;
+  packages: PublicPagePackage[];
+}
+
+/**
+ * Valores usados enquanto a organização não personalizou nada — a linha em
+ * `org_public_settings` só nasce no primeiro save. Espelha os defaults das
+ * colunas no schema Drizzle.
+ */
+export const DEFAULT_PAGE_SETTINGS: PublicPageSettings = {
+  template: "vitrine",
+  theme: "light",
+  brandColor: "ambar",
+  logoUrl: null,
+  coverUrl: null,
+  headline: null,
+  subheadline: null,
+  about: null,
+  ctaLabel: null,
+  showPrices: true,
+  whatsapp: null,
+  phone: null,
+  email: null,
+  instagram: null,
+  city: null,
+};
+
+/** Textos exibidos quando o buffet não escreveu os seus (RF27). */
+export const PAGE_COPY_FALLBACKS = {
+  subheadline: "Monte seu evento e receba um orçamento na hora.",
+  ctaLabel: "Pedir orçamento",
+} as const;
+
+/**
+ * RF27: com `showPrices: false` o preço nem sai da API. Fica aqui, e não solto
+ * no `PublicService`, porque a prévia do editor aplica a mesma regra sobre o
+ * rascunho em memória — a política de preço tem que ser uma só.
+ */
+export function applyPricePolicy(
+  packages: PublicPagePackage[],
+  showPrices: boolean
+): PublicPagePackage[] {
+  if (showPrices) return packages;
+  return packages.map((pkg) => ({ ...pkg, pricePerPerson: null }));
+}

@@ -79,6 +79,13 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 - **RF23 - Cronograma Prévio de Pagamentos:** Ao aprovar uma negociação, o sistema permite gerar parcelas financeiras vinculadas (Ex: Entrada + parcelas intermediárias), registrando a data de vencimento e o valor de cada uma.
 - **RF24 - Baixa de Parcelas e Comprovantes:** Permite alterar o status da parcela para "Pago", definir o método de pagamento (PIX, Cartão, Boleto) e anexar o link/arquivo do comprovante.
 
+### Personalização da Página Pública
+
+- **RF25 - Identidade Visual da Página Pública:** O proprietário define a logo, a imagem de capa, a cor de marca e o tema (claro/escuro) da sua página `/{slug}`. A cor vem de uma **paleta curada** — e não de um seletor livre —, garantindo contraste legível em ambos os temas sem depender da escolha do usuário.
+- **RF26 - Layout Selecionável:** O proprietário escolhe entre três layouts pré-definidos (Vitrine, Elegante, Direto), que reorganizam a mesma informação com posturas visuais distintas: guiado por fotos, guiado por tipografia e guiado por conversão. A ordem e o destaque dos pacotes na vitrine também são definidos pelo proprietário.
+- **RF27 - Conteúdo Editável:** Título, subtítulo, texto "sobre o buffet", rótulo do botão de ação, exibição ou não dos preços, e os canais de contato (WhatsApp, telefone, e-mail, Instagram, cidade) exibidos na página. Com os preços desligados, o valor por convidado **não é enviado pela API** — não fica apenas escondido na tela.
+- **RF28 - Galeria de Fotos por Pacote:** Até 10 imagens por pacote, ordenáveis pelo proprietário; a primeira serve de capa na vitrine pública.
+
 ---
 
 ## 🔒 Requisitos Não Funcionais (RNF)
@@ -89,6 +96,7 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 - **RNF04 - Controle de Acesso Baseado em Funções (RBAC):** Restrição de endpoints no Nest.js através de guards que validam as roles do Better-Auth, bloqueando requisições financeiras e mutações de dados para quem for `member` (Funcionário).
 - **RNF05 - Isolamento Lógico Multi-tenant:** Toda query operacional de negócio executada pelo Drizzle ORM no Nest.js deve injetar explicitamente o identificador da organização na cláusula `where(eq(table.organizationId, session.activeOrganizationId))`. Para tabelas sem `organizationId` direto (ex: `financial_payments`), o isolamento é garantido via join com a tabela pai (`leads_budgets`).
 - **RNF06 - Proteção Básica Contra Spam no Formulário Público:** Por ser o único endpoint não autenticado do sistema, o formulário de captação (`RF18`) deve contar com uma camada mínima de proteção contra automação (honeypot field e/ou rate limit por IP).
+- **RNF07 - Upload de Imagens Isolado por Organização:** O envio de imagens (`RF25`/`RF28`) usa URL pré-assinada, com o arquivo indo do navegador direto ao bucket S3-compatível — o byte não passa pela API. A chave do objeto é **derivada no servidor** a partir do `organizationId` (`orgs/<orgId>/<escopo>/<uuidv7>.<ext>`), nunca informada pelo cliente; o tipo e o tamanho declarados entram na assinatura, então divergir deles é recusado pelo bucket; e toda URL persistida é validada contra o bucket configurado **e** o prefixo da própria organização, fechando o vetor de apontar um campo de imagem para um host externo.
 
 ---
 

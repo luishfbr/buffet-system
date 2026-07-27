@@ -1,11 +1,19 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Geist, Geist_Mono } from "next/font/google";
+import { Space_Grotesk, Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-space-grotesk",
   display: "swap",
+});
+
+// Serifa do template "Elegante" da página pública (RF26) — só ela usa.
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
+  display: "swap",
+  axes: ["SOFT", "WONK", "opsz"],
 });
 
 const geistSans = Geist({
@@ -40,7 +48,7 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${spaceGrotesk.variable} ${geistSans.variable} ${geistMono.variable}`}
+      className={`${spaceGrotesk.variable} ${geistSans.variable} ${geistMono.variable} ${fraunces.variable}`}
     >
       <body className="min-h-screen antialiased">{children}</body>
     </html>

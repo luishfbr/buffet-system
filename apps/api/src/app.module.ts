@@ -9,6 +9,8 @@ import { PackagesModule } from "./packages/packages.module.js";
 import { PublicModule } from "./public/public.module.js";
 import { LeadsModule } from "./leads/leads.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
+import { UploadsModule } from "./uploads/uploads.module.js";
+import { PageSettingsModule } from "./page-settings/page-settings.module.js";
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { FinanceModule } from "./finance/finance.module.js";
     PublicModule,
     LeadsModule,
     FinanceModule,
+    UploadsModule,
+    PageSettingsModule,
   ],
   controllers: [AppController],
 })

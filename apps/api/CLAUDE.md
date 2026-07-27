@@ -20,7 +20,8 @@ items/
 
 O módulo é mínimo — não precisa de `imports` porque os tokens `DB` e `AUTH` são `@Global`.
 Registre o módulo em [`src/app.module.ts`](src/app.module.ts). Referências: `items/`, `packages/`,
-`leads/`, `finance/`, `public/`. Infra transversal em `common/`, `auth/`, `database/`.
+`leads/`, `finance/`, `public/`, `page-settings/`. Infra transversal em `common/`, `auth/`,
+`database/`, `uploads/` (este último é `@Global` e exporta o `UploadsService`).
 
 ## Controllers
 
@@ -36,6 +37,8 @@ Padrão (veja [`src/items/items.controller.ts`](src/items/items.controller.ts)):
 - Query params chegam como `string` crua e são estreitados contra os enums de `@buffet/shared`
   (ex.: `ITEM_TYPES.includes(type as ItemType)`, `includeInactive === "true"`).
 - Delete físico = `@Roles("owner")` + `@Delete(":id")` + `@HttpCode(204)`, handler retorna `void`.
+- **Rota estática que colide com `:id` vem antes dela** no arquivo — ex.: `@Patch("order")` de
+  `packages.controller.ts` (reordenação da vitrine) precede `@Patch(":id")`, senão "order" cai no update.
 
 ## Services
 
@@ -122,6 +125,32 @@ autenticadas:
 - **Preço autoritativo no servidor:** o service resolve a org pelo slug, valida que o pacote
   pertence à org e está ativo, e calcula `totalValue = computeBudgetTotal(pricePerPerson, guestCount)`
   — **nunca** confie num total enviado pelo cliente. Retorna só `{ id }`.
+
+O payload da página (`buildPageData`) é montado uma vez só e reusado pela prévia do editor:
+`PublicModule` exporta o `PublicService` e `GET /page-settings/preview` (`@Roles("owner")`,
+declarada **antes** de qualquer rota com parâmetro) devolve a mesma resposta resolvida pela org da
+sessão, com preço mesmo quando `showPrices` está desligado — quem esconde é o cliente, aplicando o
+`applyPricePolicy` de `@buffet/shared` sobre o rascunho.
+
+## Upload de imagens (RNF07)
+
+[`src/uploads/`](src/uploads) é `@Global` e exporta o `UploadsService` para quem precisar gravar URL
+de imagem. Ver a seção "Storage de imagens" do [`CLAUDE.md` da raiz](../../CLAUDE.md) para as regras.
+Na prática, ao adicionar um campo de imagem em qualquer módulo:
+
+```ts
+// 1. injete o service (o módulo é @Global, não precisa importar nada)
+constructor(@Inject(DB) private readonly db: Database,
+            private readonly uploads: UploadsService) {}
+
+// 2. valide ANTES de gravar — a URL tem que estar no bucket e no prefixo da org
+if (input.logoUrl) this.uploads.assertOwnedAssetUrl(orgId, input.logoUrl);
+```
+
+Ao **apagar** a linha que referencia a imagem, chame `uploads.remove(orgId, url)` para não deixar o
+objeto órfão (é o que `PackagesService.removeImage` faz). Na ordem inversa — quando a escrita é
+adiada, como no editor da página — só apague **depois** do save, senão a página fica com foto
+quebrada apontando para um objeto que já morreu.
 
 ## Camada de dados (`@buffet/db`)
 

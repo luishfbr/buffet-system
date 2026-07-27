@@ -31,12 +31,14 @@ src/
     login/ signup/        auth (client) — vestem o AuthShell (components/auth/)
     onboarding/           criação guiada de org pós-signup (client)
     invite/[id]/          aceitar convite de org (client)
-    [slug]/page.tsx       PÚBLICO — captação de lead (RF17/RF18) — SERVER component
+    [slug]/page.tsx       PÚBLICO — fetch + metadata (RF17/RF18) — SERVER component
     dashboard/
       layout.tsx          guarda de auth + shell de navegação (client)
-      page.tsx  catalog/  leads/  finance/  members/
+      page.tsx  catalog/  leads/  finance/  members/  pagina/
   components/{ui,auth,marketing,onboarding,catalog,leads,finance,public}/
-  lib/                    api.ts · auth-client.ts · use-role.ts · types.ts · slug.ts · utils.ts
+    public/templates/     os 3 layouts da página pública (RF26)
+  lib/                    api.ts · auth-client.ts · use-role.ts · types.ts · slug.ts · utils.ts ·
+                          image.ts · use-package-selection.ts
 ```
 
 ## Client-first; server só para dados públicos
@@ -100,8 +102,11 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 ## UI & estilo
 
 - **shadcn/ui "new-york"**, subconjunto enxuto em [`src/components/ui/`](src/components/ui) — só
-  `button`, `badge`, `card`, `input`, `label`, `modal`. Adicione primitives conforme a necessidade,
-  no mesmo estilo.
+  `button`, `badge`, `card`, `input`, `label`, `modal`, `tabs`, `select`, `textarea`, `switch`,
+  `image-upload`. Adicione primitives conforme a necessidade, no mesmo estilo.
+- **Imagens** são `<img loading="lazy" decoding="async">` com `aspect-*` fixo no contêiner — o
+  projeto **não usa `next/image`** (evita configurar `remotePatterns` por host). Upload é sempre pelo
+  `ImageUpload`, que reduz o arquivo em canvas (`lib/image.ts`) e envia direto ao bucket.
 - **`Modal` é custom** (não Radix Dialog): backdrop fixo, Escape para fechar, bottom-sheet no mobile /
   card centralizado em `sm:`. É o que dirige todos os fluxos de create/edit (via um state `modal`
   como discriminated union na página).
@@ -140,6 +145,39 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
   de conflito de agenda (`conflictCount`, RF21, não bloqueia — só vem do `GET /leads/:id`), a textarea
   de notas (RF20), o botão "Copiar proposta" → clipboard (RF22), e embute o `SchedulePanel` do
   financeiro **se `isOwner`**.
+- **Página pública** (`dashboard/pagina/page.tsx` + `app/[slug]/page.tsx` + `components/public/*`):
+  `app/[slug]/page.tsx` só busca o payload (`cache()` do React, compartilhado com `generateMetadata`)
+  e entrega ao `PublicPage` — **nenhum layout mora na rota**. `components/public/public-page.tsx` é o
+  wrapper: aplica a marca sobrescrevendo `--brand`/`--brand-foreground` (de `BRAND_PRESETS` em
+  `@buffet/shared`) + `.dark` + `color-scheme` no tema escuro (senão o `<input type=date>` nativo sai
+  claro), e despacha para um dos três templates de `components/public/templates/` (RF26):
+  - **Vitrine** — capa cheia + card por pacote com filmstrip (`package-photos.tsx`);
+  - **Elegante** — serifa **Fraunces** (`font-serif`, só aqui) e pacotes como cardápio com linha
+    pontilhada; o formulário fica num bloco `font-sans`;
+  - **Direto** — `LeadForm layout="split"`: campos à esquerda e painel de orçamento *sticky* que
+    recalcula enquanto o cliente digita.
+
+  Regras ao mexer nos templates: eles são **client components puros** (recebem `PublicPageData`, não
+  fazem fetch) — é o que faz a prévia do editor ser a página de verdade; nada de `document.getElementById`
+  neles (na prévia o `document` é o do iframe), então a rolagem até o formulário sai do `budgetRef` de
+  `lib/use-package-selection.ts` (o card escolhe, o formulário recebe controlado, a rolagem respeita
+  `prefers-reduced-motion`); a lista de canais de contato sai de `components/public/contacts.tsx`.
+
+  O editor é owner-only e salva tudo de uma vez em `PATCH /page-settings`; imagens antigas só são
+  apagadas do bucket **depois** do save bem-sucedido. Duas partes dele fogem desse save por editarem
+  outra entidade e gravarem na hora: a galeria do pacote (`components/catalog/package-gallery.tsx`,
+  só em pacote já criado) e a ordem/destaque da vitrine (`components/catalog/package-showcase.tsx` →
+  `PATCH /packages/order`, que avisa o editor por `onChanged` para a prévia recarregar).
+
+  **Prévia ao vivo** (`components/public/page-preview.tsx` + `preview-frame.tsx`): o editor renderiza
+  o mesmo `PublicPage` com o rascunho em memória, dentro de um `<iframe>` que recebe a árvore React
+  por `createPortal` (as folhas de estilo do documento pai são clonadas para dentro dele). O iframe
+  existe porque os templates usam breakpoints de viewport e `svh` — num `<div>` a prévia de celular
+  mediria a janela do painel, e não os 390px simulados. A moldura de `PublicPageData` vem de
+  `GET /page-settings/preview` (a mesma resposta da página pública, sempre com preço) e o rascunho
+  passa pelo `updatePageSettingsSchema` antes de entrar na prévia, para ela mostrar o texto já
+  normalizado. `LeadForm` recebe `preview` e não envia nada; a política de preço (RF27) é aplicada
+  pelo `applyPricePolicy` de `@buffet/shared`, o mesmo que a API usa.
 - **Financeiro** (`components/finance/*` + `dashboard/finance/page.tsx`): `SchedulePanel` só habilita
   em `leadStatus === "aprovado"`, gera parcelas iguais client-side com `splitInstallments(total, n)`,
   e dá baixa via `PayForm` (`PATCH /finance/payments/:id/pay`). A página Finance mostra KPIs

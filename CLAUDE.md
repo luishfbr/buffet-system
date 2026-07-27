@@ -52,16 +52,21 @@ Estas regras se aplicam a **web e api**; os arquivos filhos não as repetem.
 
 ⚠️ **Pegadinha crítica:** [`packages/db/drizzle.config.ts`](packages/db/drizzle.config.ts) aponta
 para `./dist/schema.js` (compilado), **não** para o `src`, por causa dos imports `.js` do NodeNext.
-Logo, **rode `pnpm build` antes de gerar/aplicar migrations.**
+Logo, **recompile o pacote antes de gerar/aplicar migrations.**
 
 Fluxo ao alterar o schema:
 
 ```bash
 # 1. edite packages/db/src/schema.ts
-pnpm build          # recompila @buffet/db → dist/schema.js
-pnpm db:generate    # drizzle-kit gera a migration em packages/db/drizzle/
-pnpm db:migrate     # aplica no banco
+pnpm --filter @buffet/db build   # recompila @buffet/db → dist/schema.js
+pnpm db:generate                 # drizzle-kit gera a migration em packages/db/drizzle/
+pnpm db:migrate                  # aplica no banco
 ```
+
+⚠️ **Use o `--filter`, não o `pnpm build` da raiz, com o `pnpm dev` rodando.** O build da raiz passa
+por `apps/web` e escreve o bundle de produção em `apps/web/.next` — o mesmo diretório que o `next dev`
+está usando. O dev server passa a carregar chunks do outro build e quebra com
+`Cannot find module './<n>.js'`. Se acontecer: pare o dev, `rm -rf apps/web/.next`, suba de novo.
 
 | Script | Onde roda | O quê |
 |---|---|---|
@@ -70,6 +75,22 @@ pnpm db:migrate     # aplica no banco
 
 Migrations versionadas em `packages/db/drizzle/*.sql` + `meta/_journal.json`. Postgres local via
 `docker compose up -d` (porta 5432); em produção roda no Neon.
+
+## Storage de imagens (RNF07)
+
+`docker compose up -d` também sobe **MinIO** (API 9000, console 9001) e um `minio-init` que cria o
+bucket `buffet-assets` com leitura anônima. O upload é **direto do navegador para o bucket** via URL
+pré-assinada emitida por `POST /uploads/presign` — o byte nunca passa pela API.
+
+Duas regras inegociáveis ao mexer nisso:
+
+- **A chave do objeto é derivada no servidor** (`orgs/<orgId>/<escopo>/<uuidv7>.<ext>`); nada de
+  caminho vindo do cliente.
+- **Toda URL de imagem persistida passa por `UploadsService.assertOwnedAssetUrl(orgId, url)`** antes
+  de ir ao banco, senão o campo vira um "cole a URL que quiser".
+
+A assinatura inclui `content-type` e `content-length` (`signableHeaders`) — sem o primeiro, o bucket
+grava o tipo que o cliente mandar e um HTML acaba servido a partir do host de assets.
 
 ## Variáveis de ambiente
 
@@ -85,6 +106,8 @@ Nunca commite o `.env`.
 | `TRUSTED_ORIGINS` | api | CSV de origins de CORS (default `http://localhost:3000`) |
 | `NEXT_PUBLIC_API_URL` | web | base da API (`http://localhost:3333`) |
 | `NEXT_PUBLIC_APP_URL` | web | base do app, para montar links `/{slug}` |
+| `S3_*` | api | endpoint/bucket/credenciais do storage de imagens (MinIO local) |
+| `PUBLIC_ASSET_BASE_URL` | api | base pública dos objetos; **toda URL de imagem salva é validada contra ela** |
 
 ## Qualidade & CI
 

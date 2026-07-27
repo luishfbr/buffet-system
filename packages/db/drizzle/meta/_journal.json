@@ -15,6 +15,13 @@
       "when": 1784673029734,
       "tag": "0001_flippant_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785167639762,
+      "tag": "0002_elite_scourge",
+      "breakpoints": true
     }
   ]
 }

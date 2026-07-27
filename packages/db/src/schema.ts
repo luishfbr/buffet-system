@@ -153,10 +153,57 @@ export const packages = pgTable(
       scale: 2,
     }).notNull(),
     isActive: boolean("isActive").notNull().default(true),
+    // RF26: ordem e destaque na vitrine da página pública.
+    sortOrder: integer("sortOrder").notNull().default(0),
+    isFeatured: boolean("isFeatured").notNull().default(false),
     createdAt: timestamp("createdAt").notNull().defaultNow(),
   },
   (table) => [index("packages_org_idx").on(table.organizationId)]
 );
+
+// RF28: galeria de fotos do pacote (máx. 10). Sem organizationId — o isolamento
+// vem do join com `packages`, como em package_items / financial_payments (RNF05).
+export const packageImages = pgTable(
+  "package_images",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    packageId: text("packageId")
+      .notNull()
+      .references(() => packages.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    // A imagem de sortOrder 0 é a capa do pacote.
+    sortOrder: integer("sortOrder").notNull().default(0),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [index("package_images_pkg_idx").on(table.packageId)]
+);
+
+// RF25/RF27: personalização da página pública. 1:1 com a organização — tabela
+// própria em vez de colunas em `organization`, que pertence ao plugin Better-Auth.
+export const orgPublicSettings = pgTable("org_public_settings", {
+  organizationId: text("organizationId")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  // template: 'vitrine' | 'elegante' | 'direto'
+  template: text("template").notNull().default("vitrine"),
+  // theme: 'light' | 'dark'
+  theme: text("theme").notNull().default("light"),
+  // Chave de preset da paleta curada (BRAND_PRESETS em @buffet/shared), não hex.
+  brandColor: text("brandColor").notNull().default("ambar"),
+  logoUrl: text("logoUrl"),
+  coverUrl: text("coverUrl"),
+  headline: text("headline"),
+  subheadline: text("subheadline"),
+  about: text("about"),
+  ctaLabel: text("ctaLabel"),
+  showPrices: boolean("showPrices").notNull().default(true),
+  whatsapp: text("whatsapp"),
+  phone: text("phone"),
+  email: text("email"),
+  instagram: text("instagram"),
+  city: text("city"),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
 
 export const packageItems = pgTable(
   "package_items",
@@ -227,12 +274,26 @@ export const financialPayments = pgTable(
 // 4. RELATIONS (Drizzle relational queries)
 // ==========================================
 
-export const organizationRelations = relations(organization, ({ many }) => ({
+export const organizationRelations = relations(organization, ({ many, one }) => ({
   members: many(member),
   items: many(items),
   packages: many(packages),
   leadsBudgets: many(leadsBudgets),
+  publicSettings: one(orgPublicSettings, {
+    fields: [organization.id],
+    references: [orgPublicSettings.organizationId],
+  }),
 }));
+
+export const orgPublicSettingsRelations = relations(
+  orgPublicSettings,
+  ({ one }) => ({
+    organization: one(organization, {
+      fields: [orgPublicSettings.organizationId],
+      references: [organization.id],
+    }),
+  })
+);
 
 export const memberRelations = relations(member, ({ one }) => ({
   organization: one(organization, {
@@ -251,6 +312,14 @@ export const packagesRelations = relations(packages, ({ many, one }) => ({
     references: [organization.id],
   }),
   packageItems: many(packageItems),
+  images: many(packageImages),
+}));
+
+export const packageImagesRelations = relations(packageImages, ({ one }) => ({
+  package: one(packages, {
+    fields: [packageImages.packageId],
+    references: [packages.id],
+  }),
 }));
 
 export const itemsRelations = relations(items, ({ many, one }) => ({
@@ -312,3 +381,7 @@ export type LeadBudget = typeof leadsBudgets.$inferSelect;
 export type NewLeadBudget = typeof leadsBudgets.$inferInsert;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
+export type PackageImage = typeof packageImages.$inferSelect;
+export type NewPackageImage = typeof packageImages.$inferInsert;
+export type OrgPublicSettings = typeof orgPublicSettings.$inferSelect;
+export type NewOrgPublicSettings = typeof orgPublicSettings.$inferInsert;
