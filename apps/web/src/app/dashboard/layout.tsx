@@ -23,16 +23,23 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
-  const { data: activeOrg } = authClient.useActiveOrganization();
+  const { data: activeOrg, isPending: orgPending } =
+    authClient.useActiveOrganization();
   const isOwner =
     activeOrg?.members?.find((m) => m.userId === session?.user.id)?.role ===
     "owner";
 
   useEffect(() => {
-    if (!isPending && !session) router.replace("/login");
-  }, [isPending, session, router]);
+    if (isPending) return;
+    if (!session) {
+      router.replace("/login");
+    } else if (!orgPending && !activeOrg) {
+      // Sessão sem organização ativa → onboarding guiado (cria a org).
+      router.replace("/onboarding");
+    }
+  }, [isPending, session, orgPending, activeOrg, router]);
 
-  if (isPending || !session) {
+  if (isPending || !session || (!orgPending && !activeOrg)) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         Carregando...

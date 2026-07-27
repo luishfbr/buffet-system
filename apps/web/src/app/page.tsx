@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { FeatureCard } from "@/components/marketing/feature-card";
+import { HeaderAuth } from "@/components/marketing/header-auth";
 import { HeroPipeline } from "@/components/marketing/hero-pipeline";
 import { cn } from "@/lib/utils";
 
@@ -91,21 +92,7 @@ export default function HomePage() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href="/login"
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "sm" }),
-                "hidden sm:inline-flex",
-              )}
-            >
-              Entrar
-            </a>
-            <a
-              href="/signup"
-              className={cn(buttonVariants({ variant: "brand", size: "sm" }))}
-            >
-              Criar meu buffet
-            </a>
+            <HeaderAuth />
           </div>
         </nav>
       </header>
