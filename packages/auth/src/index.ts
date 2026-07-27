@@ -36,6 +36,28 @@ export function createAuth(config: CreateAuthConfig) {
       enabled: true,
       requireEmailVerification: false,
     },
+    // Ao criar uma sessão (login incluso), define a organização ativa com a
+    // primeira que o usuário pertence. Sem isto, `activeOrganizationId` fica
+    // nulo após o login e o dashboard reenvia usuários já cadastrados ao
+    // onboarding (RNF05 — sessão é a fonte da org ativa).
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            const membership = await config.db.query.member.findFirst({
+              where: (m, { eq }) => eq(m.userId, session.userId),
+              orderBy: (m, { asc }) => asc(m.createdAt),
+            });
+            return {
+              data: {
+                ...session,
+                activeOrganizationId: membership?.organizationId ?? null,
+              },
+            };
+          },
+        },
+      },
+    },
     plugins: [
       // Multi-tenancy: self-service org creation, member = 'owner' on create.
       // No transactional email in the MVP, so invitations are accepted via a
