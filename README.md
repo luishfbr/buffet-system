@@ -53,9 +53,9 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 
 ## Walkthrough do MVP
 
-1. **Signup** (`/signup`): o proprietário se cadastra e cria a organização — vira `owner` (RF00).
-2. **Catálogo** (`/dashboard/catalog`): cadastra pratos, bebidas, serviços e pacotes com preço por convidado (RF01–RF16).
-3. **Captação pública** (`/{slug}`): o cliente preenche o formulário, vê a estimativa `preço × convidados` e gera um lead (RF17/RF18).
+1. **Signup + Onboarding** (`/signup` → `/onboarding`): o proprietário cria a conta e, no fluxo guiado, cria a organização (vira `owner`) e cadastra o catálogo inicial — pratos, bebidas, serviços e pacotes (RF00).
+2. **Catálogo** (`/dashboard/catalog`): revisa e amplia pratos, bebidas, serviços e pacotes com preço por convidado (RF01–RF16).
+3. **Captação pública** (`/{slug}`): a partir do link público exibido no dashboard, o cliente preenche o formulário, vê a estimativa `preço × convidados` e gera um lead (RF17/RF18).
 4. **Funil** (`/dashboard/leads`): move o lead entre status, registra o histórico, vê o alerta de conflito de data e copia a proposta para o WhatsApp (RF19–RF22).
 5. **Financeiro** (`/dashboard/finance`, só owner): ao aprovar, gera o cronograma de parcelas e dá baixa com método + comprovante (RF23/RF24).
 
