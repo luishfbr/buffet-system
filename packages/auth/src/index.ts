@@ -2,6 +2,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization, admin } from "better-auth/plugins";
 import { type Database, schema, generateId } from "@buffet/db";
+import { pickActiveOrganizationId } from "./active-organization.js";
 
 /**
  * Porta de e-mail (RNF09). Os hooks transacionais do Better-Auth vivem aqui,
@@ -74,22 +75,34 @@ export function createAuth(config: CreateAuthConfig) {
         });
       },
     },
-    // Ao criar uma sessão (login incluso), define a organização ativa com a
-    // primeira que o usuário pertence. Sem isto, `activeOrganizationId` fica
-    // nulo após o login e o dashboard reenvia usuários já cadastrados ao
-    // onboarding (RNF05 — sessão é a fonte da org ativa).
+    // Ao criar uma sessão (login incluso), define a organização ativa. Sem
+    // isto, `activeOrganizationId` fica nulo após o login e o dashboard reenvia
+    // usuários já cadastrados ao onboarding (RNF05 — sessão é a fonte da org
+    // ativa). Qual org entra é decidido por `pickActiveOrganizationId`: a
+    // última usada no seletor do painel, com fallback para o vínculo mais
+    // antigo.
     databaseHooks: {
       session: {
         create: {
           before: async (session) => {
-            const membership = await config.db.query.member.findFirst({
-              where: (m, { eq }) => eq(m.userId, session.userId),
-              orderBy: (m, { asc }) => asc(m.createdAt),
-            });
+            const [memberships, account] = await Promise.all([
+              config.db.query.member.findMany({
+                where: (m, { eq }) => eq(m.userId, session.userId),
+                orderBy: (m, { asc }) => asc(m.createdAt),
+                columns: { organizationId: true },
+              }),
+              config.db.query.user.findFirst({
+                where: (u, { eq }) => eq(u.id, session.userId),
+                columns: { lastOrganizationId: true },
+              }),
+            ]);
             return {
               data: {
                 ...session,
-                activeOrganizationId: membership?.organizationId ?? null,
+                activeOrganizationId: pickActiveOrganizationId(
+                  memberships,
+                  account?.lastOrganizationId
+                ),
               },
             };
           },
@@ -120,3 +133,5 @@ export function createAuth(config: CreateAuthConfig) {
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+export { pickActiveOrganizationId } from "./active-organization.js";

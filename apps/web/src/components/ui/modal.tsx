@@ -22,11 +22,34 @@ const FOCUSABLE = [
  */
 const stack: string[] = [];
 let previousOverflow = "";
+let lockedScroller: HTMLElement | null = null;
+let previousScrollerOverflow = "";
+
+/**
+ * O painel é um app shell: quem rola é o `<main>[data-app-scroll]`, não o body.
+ * Um `overflow: hidden` no body não alcança um scroller interno, então a trava
+ * precisa achar o container de verdade — e só travá-lo se ele **estiver**
+ * rolando: no mobile o mesmo `<main>` tem `overflow: visible` e um `hidden`
+ * ali cortaria o conteúdo em vez de segurar a rolagem.
+ */
+function findScroller(): HTMLElement | null {
+  const el = document.querySelector<HTMLElement>("[data-app-scroll]");
+  if (!el) return null;
+  const { overflowY } = getComputedStyle(el);
+  return overflowY === "auto" || overflowY === "scroll" ? el : null;
+}
 
 function pushModal(id: string) {
   if (stack.length === 0) {
     previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // Guarda a referência (e não só o seletor): se a viewport mudar de faixa
+    // com o modal aberto, é este elemento que precisa ser destravado.
+    lockedScroller = findScroller();
+    if (lockedScroller) {
+      previousScrollerOverflow = lockedScroller.style.overflow;
+      lockedScroller.style.overflow = "hidden";
+    }
   }
   stack.push(id);
 }
@@ -34,7 +57,12 @@ function pushModal(id: string) {
 function popModal(id: string) {
   const index = stack.lastIndexOf(id);
   if (index !== -1) stack.splice(index, 1);
-  if (stack.length === 0) document.body.style.overflow = previousOverflow;
+  if (stack.length > 0) return;
+  document.body.style.overflow = previousOverflow;
+  if (lockedScroller) {
+    lockedScroller.style.overflow = previousScrollerOverflow;
+    lockedScroller = null;
+  }
 }
 
 export function Modal({
@@ -124,7 +152,8 @@ export function Modal({
         startedOnBackdrop.current = e.target === e.currentTarget;
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && startedOnBackdrop.current) onClose();
+        if (e.target === e.currentTarget && startedOnBackdrop.current)
+          onClose();
         startedOnBackdrop.current = false;
       }}
     >

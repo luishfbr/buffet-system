@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { authClient, useSession } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth-client";
+import { useWorkspace } from "@/lib/workspace";
 import { api } from "@/lib/api";
 import type { Item, Package } from "@/lib/types";
 import {
@@ -31,13 +32,28 @@ const STEPS: readonly OnboardingStep[] = [
 ];
 const FINISH_INDEX = STEPS.length; // 5 — tela de conclusão
 
+/** Boundary exigido pelo App Router para o `useSearchParams` do `?novo=1`. */
 export default function OnboardingPage() {
+  return (
+    <Suspense fallback={null}>
+      <OnboardingView />
+    </Suspense>
+  );
+}
+
+function OnboardingView() {
   const router = useRouter();
   const { data: session, isPending: sessionPending } = useSession();
-  const { data: activeOrg, isPending: orgPending } =
-    authClient.useActiveOrganization();
+  const { workspace, loading: workspaceLoading } = useWorkspace();
+  // `?novo=1` vem do seletor de organização: quem já tem um buffet e quer
+  // montar outro. Sem isso, o gate abaixo devolveria essa pessoa ao painel.
+  const wantsNewOrg = useSearchParams().get("novo") === "1";
 
-  const [org, setOrg] = useState<{ name: string; slug: string } | null>(null);
+  const [org, setOrg] = useState<{
+    id: string;
+    name: string;
+    slug: string;
+  } | null>(null);
   const [draft, setDraft] = useState({ name: "", slug: "" });
   const [items, setItems] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -52,13 +68,25 @@ export default function OnboardingPage() {
 
   // Bootstrap único: decide o passo inicial e retoma o catálogo já existente.
   const bootstrap = useCallback(async () => {
-    if (!activeOrg) {
-      // Ainda sem organização — começa pela criação (passo 1).
+    if (!workspace) return;
+    const activeOrg = workspace.organizations.find(
+      (o) => o.id === workspace.activeOrganizationId
+    );
+
+    if (!activeOrg || wantsNewOrg) {
+      // Quem chegou aqui sem buffet mas com convite esperando não deveria estar
+      // montando um buffet — é o caso do funcionário no primeiro acesso.
+      if (!activeOrg && workspace.invitations.length > 0) {
+        router.replace("/convites");
+        return;
+      }
+      // Começa pela criação (passo 1).
       setStepIndex(0);
       setReady(true);
       return;
     }
-    setOrg({ name: activeOrg.name, slug: activeOrg.slug });
+
+    setOrg({ id: activeOrg.id, name: activeOrg.name, slug: activeOrg.slug });
     const [its, pkgs] = await Promise.all([
       api.get<Item[]>("/items?includeInactive=true"),
       api.get<Package[]>("/packages?includeInactive=true"),
@@ -74,13 +102,15 @@ export default function OnboardingPage() {
     setPackages(pkgs);
     setStepIndex(1); // pula a criação da organização
     setReady(true);
-  }, [activeOrg, router]);
+  }, [workspace, wantsNewOrg, router]);
 
   useEffect(() => {
-    if (sessionPending || orgPending || !session || initRef.current) return;
+    if (sessionPending || workspaceLoading || !session || initRef.current) {
+      return;
+    }
     initRef.current = true;
     void bootstrap();
-  }, [sessionPending, orgPending, session, bootstrap]);
+  }, [sessionPending, workspaceLoading, session, bootstrap]);
 
   // Mantém o preview vivo durante a criação da org (passo 1).
   const previewName = org?.name || draft.name;
@@ -88,7 +118,9 @@ export default function OnboardingPage() {
   const percent = catalogPercent(catalogCounts(items, packages));
 
   function goToFinish() {
-    if (activeOrg) markOnboardedLocally(activeOrg.id);
+    // `org.id` e não o do workspace: ao criar um segundo buffet, o buffet que
+    // acabou de ser configurado é o recém-criado, não o que estava ativo.
+    if (org) markOnboardedLocally(org.id);
     setStepIndex(FINISH_INDEX);
   }
 
@@ -134,7 +166,9 @@ export default function OnboardingPage() {
           orgName={previewName || "seu buffet"}
           slug={previewSlug}
           percent={percent}
-          onGoDashboard={() => router.push("/dashboard")}
+          // Documento novo, como na troca pelo seletor: a organização ativa
+          // mudou no servidor e o painel precisa subir inteiro nela (RNF05).
+          onGoDashboard={() => window.location.assign("/dashboard")}
         />
       ) : (
         <div className="mx-auto grid max-w-5xl gap-8 px-6 py-8 lg:grid-cols-[1fr_360px]">

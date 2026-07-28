@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { setActiveOrganization } from "@/lib/workspace";
 import { slugify, randomSuffix } from "@/lib/slug";
 import { appHost } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ export function OrgStep({
   onCreated,
 }: {
   onDraftChange: (draft: { name: string; slug: string }) => void;
-  onCreated: (org: { name: string; slug: string }) => void;
+  onCreated: (org: { id: string; name: string; slug: string }) => void;
 }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -61,13 +62,13 @@ export function OrgStep({
         });
         if (created.error) throw new Error(created.error.message);
       }
-      await authClient.organization.setActive({
-        organizationId: created.data!.id,
-      });
-      onCreated({ name, slug: orgSlug });
+      // Pela API (e não por `organization.setActive`) para o buffet recém-criado
+      // também virar o "último usado" e ser o que reabre no próximo login.
+      await setActiveOrganization(created.data!.id);
+      onCreated({ id: created.data!.id, name, slug: orgSlug });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Falha ao criar organização",
+        err instanceof Error ? err.message : "Falha ao criar organização"
       );
     } finally {
       setSaving(false);

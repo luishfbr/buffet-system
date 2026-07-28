@@ -1,17 +1,30 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import { safeNextPath } from "@/lib/workspace";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormError } from "@/components/ui/form-error";
 
+/** Boundary exigido pelo App Router para o `useSearchParams` do `?next=`. */
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginView />
+    </Suspense>
+  );
+}
+
+function LoginView() {
   const router = useRouter();
+  // `?next=` preserva o destino ao ser mandado para cá — sobretudo o link de
+  // convite (`/invite/:id`), que antes se perdia no login.
+  const next = safeNextPath(useSearchParams().get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +37,11 @@ export default function LoginPage() {
     try {
       const res = await authClient.signIn.email({ email, password });
       if (res.error) throw new Error(res.error.message);
-      router.push("/dashboard");
+      // Sempre para o painel: é o `dashboard/layout` que consulta o servidor e
+      // decide entre painel, convites e onboarding.
+      router.push(next ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no login");
-    } finally {
       setLoading(false);
     }
   }
@@ -85,7 +99,10 @@ export default function LoginPage() {
       </form>
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Não tem conta?{" "}
-        <Link href="/signup" className="text-brand hover:underline">
+        <Link
+          href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}
+          className="text-brand hover:underline"
+        >
           Criar minha conta
         </Link>
       </p>

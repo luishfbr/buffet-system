@@ -29,16 +29,17 @@ src/
     layout.tsx            RootLayout (lang pt-BR, globals.css)
     page.tsx              landing pública (/)
     login/ signup/        auth (client) — vestem o AuthShell (components/auth/)
-    onboarding/           criação guiada de org pós-signup (client)
-    invite/[id]/          aceitar convite de org (client)
+    onboarding/           criação guiada de org (client) — `?novo=1` força criar mais um buffet
+    convites/             convites pendentes do usuário (client) — primeiro acesso do funcionário
+    invite/[id]/          aceitar um convite pelo link do e-mail (client)
     [slug]/page.tsx       PÚBLICO — fetch + metadata (RF17/RF18) — SERVER component
     dashboard/
       layout.tsx          guarda de auth + shell de navegação (client)
       page.tsx  catalog/  leads/  finance/  members/  pagina/
   components/{ui,auth,marketing,onboarding,catalog,leads,finance,public}/
     public/templates/     os 3 layouts da página pública (RF26)
-  lib/                    api.ts · auth-client.ts · use-role.ts · types.ts · slug.ts · utils.ts ·
-                          image.ts · use-package-selection.ts
+  lib/                    api.ts · auth-client.ts · workspace.ts · use-active-org.ts · use-role.ts ·
+                          types.ts · slug.ts · utils.ts · image.ts · use-package-selection.ts
 ```
 
 ## Client-first; server só para dados públicos
@@ -88,24 +89,44 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 - **Proteção de rota é client-side** (não há middleware): [`dashboard/layout.tsx`](src/app/dashboard/layout.tsx)
   redireciona para `/login` se não houver sessão. Itens de nav owner-only são filtrados por um flag
   `ownerOnly`; a página Finance **também** bloqueia `member` no próprio componente (RNF04 em profundidade).
-- **Signup** (`signup/page.tsx`): cria **só a conta** (`signUp.email`) e redireciona para
-  `/onboarding`. A organização é criada no fluxo guiado (`app/onboarding/` + `components/onboarding/*`):
-  `OrgStep` chama `organization.create({ name, slug })` (criador vira `owner`; em colisão de slug, retry
-  com `randomSuffix()` de `lib/slug.ts`) → `organization.setActive`.
-- **Telas de entrada** (`login/`, `signup/`, `invite/[id]/`): compartilham o `AuthShell`
+- **⚠️ Não decida rota com `authClient.useActiveOrganization()`.** Aquele hook é um átomo nanostores
+  **singleton de módulo** que (better-auth 1.6.23) busca **uma vez por carregamento de página** e não
+  é redisparado por `/sign-in/email` — sair e entrar sem F5 o deixava travado em `null`, e o painel
+  mandava para o onboarding quem já tinha buffet. Duas regras:
+  - **Rota** sai de [`lib/workspace.ts`](src/lib/workspace.ts): `useWorkspace()` (fetch comum de
+    `GET /me/workspace`) + `resolveEntryRoute(ws)` → `/dashboard` | `/convites` | `/onboarding`.
+    O `dashboard/layout.tsx` é o **portão único**; login e signup só empurram para `/dashboard`.
+  - **Dados da org** saem de [`lib/use-active-org.ts`](src/lib/use-active-org.ts) — wrapper que
+    auto-cura o átomo com um `refetch()` único quando a sessão tem org e ele não tem.
+- **Troca de organização** (`components/dashboard/org-switcher.tsx`, raiz do breadcrumb no header):
+  `switchOrganization()` chama a API e faz `window.location.assign("/dashboard")` — **reload completo
+  de propósito**. Sem store global, com `load()` só na montagem e preferências chaveadas por `orgId`,
+  uma navegação client-side deixaria dado do buffet anterior na tela (RNF05).
+- **Signup** (`signup/page.tsx`): cria **só a conta** (`signUp.email`) e vai para `/dashboard`, que
+  roteia. A organização é criada em `app/onboarding/` + `components/onboarding/*`: `OrgStep` chama
+  `organization.create({ name, slug })` (criador vira `owner`; em colisão de slug, retry com
+  `randomSuffix()` de `lib/slug.ts`) → `setActiveOrganization()` de `lib/workspace.ts`.
+- **Telas de entrada** (`login/`, `signup/`, `convites/`, `invite/[id]/`): compartilham o `AuthShell`
   (`components/auth/auth-shell.tsx`) — split-screen com showcase escuro (`.dark`, âmbar `--brand`,
   `HeroPipeline`) à esquerda e o formulário no claro à direita. CTA usa `Button variant="brand"`.
-- **Convites** (`members/page.tsx` + `invite/[id]/page.tsx`): `organization.inviteMember` gera um link
-  copiável `${origin}/invite/${id}` (não envia e-mail — fora do escopo do MVP);
-  `organization.acceptInvitation` + `setActive` no aceite.
+  `login`/`signup` aceitam `?next=` (validado por `safeNextPath`, que barra destino externo).
+- **Convites** (RF34): `members/page.tsx` envia por e-mail e mostra o link copiável
+  `${origin}/invite/${id}` como alternativa. Quem recebe tem dois caminhos — o link direto
+  (`invite/[id]/`, que leva `?next=` para o login) e a lista `convites/`, para onde o portão manda
+  quem entra sem buffet mas com convite pendente. Aceite: `organization.acceptInvitation` +
+  `switchOrganization()`.
 
 ## UI & estilo
 
 - **shadcn/ui "new-york"**, subconjunto enxuto em [`src/components/ui/`](src/components/ui), **escrito
   à mão — zero Radix instalado**: `button`, `badge`, `card`, `input`, `label`, `modal`, `tabs`,
   `select`, `textarea`, `switch`, `image-upload`, `toast`, `skeleton`, `empty-state`, `alert`,
-  `table`, `confirm-dialog`, `form-error`. Adicione primitives conforme a necessidade, no mesmo
-  estilo — **não** traga Radix nem outra lib de UI para resolver o que cabe em 40 linhas aqui.
+  `table`, `confirm-dialog`, `form-error`, `menu`. Adicione primitives conforme a necessidade, no
+  mesmo estilo — **não** traga Radix nem outra lib de UI para resolver o que cabe em 40 linhas aqui.
+- **`Menu`** ([`ui/menu.tsx`](src/components/ui/menu.tsx)) é o menu suspenso (padrão WAI-ARIA "menu
+  button"): `aria-haspopup="menu"`, ↑/↓ circulares, Escape devolvendo o foco ao gatilho, `mousedown`
+  fora fechando. Ao contrário do `Modal`, **não** trava scroll nem prende foco — menu não é modal, e
+  Tab deve continuar a navegação da página. Painel em `z-40`, abaixo do `z-50` do `Modal`.
 - **Imagens** são `<img loading="lazy" decoding="async">` com `aspect-*` fixo no contêiner — o
   projeto **não usa `next/image`** (evita configurar `remotePatterns` por host). Upload é sempre pelo
   `ImageUpload`, que reduz o arquivo em canvas (`lib/image.ts`) e envia direto ao bucket.

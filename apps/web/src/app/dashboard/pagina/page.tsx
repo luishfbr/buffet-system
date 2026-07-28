@@ -5,7 +5,7 @@ import { AlertTriangle, Check, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { FormError } from "@/components/ui/form-error";
 import { deleteImage } from "@/lib/image";
-import { authClient } from "@/lib/auth-client";
+import { useActiveOrg } from "@/lib/use-active-org";
 import { useRole } from "@/lib/use-role";
 import { publicUrl } from "@/lib/onboarding";
 import {
@@ -49,7 +49,7 @@ const PANES = [
 /** RF25–RF27: o proprietário desenha a página que o cliente final vê. */
 export default function PublicPageEditor() {
   const { isOwner, role } = useRole();
-  const { data: activeOrg } = authClient.useActiveOrganization();
+  const { data: activeOrg } = useActiveOrg();
   const [settings, setSettings] = useState<PublicPageSettings | null>(null);
   // Guardado para saber quais imagens ficaram órfãs depois de salvar.
   const [saved, setSaved] = useState<PublicPageSettings | null>(null);
@@ -175,7 +175,11 @@ export default function PublicPageEditor() {
   if (loading || !settings) {
     return (
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
-        <SkeletonCards count={3} className="sm:grid-cols-1" label="Carregando editor" />
+        <SkeletonCards
+          count={3}
+          className="sm:grid-cols-1"
+          label="Carregando editor"
+        />
         <Skeleton className="hidden h-150 w-full lg:block" />
       </div>
     );
@@ -188,7 +192,9 @@ export default function PublicPageEditor() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Página pública</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Página pública
+          </h1>
           <p className="text-sm text-muted-foreground">
             É o que o cliente vê ao abrir o seu link. Personalize e salve.
           </p>
@@ -379,7 +385,8 @@ export default function PublicPageEditor() {
                 <span className="flex flex-col">
                   <span className="text-sm font-medium">Mostrar preços</span>
                   <span className="text-xs text-muted-foreground">
-                    Desligado, o cliente vê os pacotes sem o valor por convidado.
+                    Desligado, o cliente vê os pacotes sem o valor por
+                    convidado.
                   </span>
                 </span>
                 <Switch

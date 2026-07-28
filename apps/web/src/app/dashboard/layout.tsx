@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -11,14 +11,20 @@ import {
   Globe,
   Wallet,
   Users,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
 import type { DashboardBadges } from "@buffet/shared";
 import { api } from "@/lib/api";
-import { authClient, useSession, signOut } from "@/lib/auth-client";
+import { useSession, signOut } from "@/lib/auth-client";
 import { useRole } from "@/lib/use-role";
+import { resolveEntryRoute, useWorkspace } from "@/lib/workspace";
+import { isSidebarCollapsed, setSidebarCollapsed } from "@/lib/sidebar";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { OrgSwitcher } from "@/components/dashboard/org-switcher";
 
 type BadgeKey = keyof DashboardBadges;
 
@@ -59,6 +65,15 @@ const NAV: {
   { href: "/dashboard/members", label: "Membros", icon: Users },
 ];
 
+/**
+ * A rota atual pertence a esta seção? `/dashboard` só casa exato, senão a Visão
+ * geral ficaria ativa em toda página do painel.
+ */
+function isCurrentSection(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -67,27 +82,51 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
-  const { data: activeOrg, isPending: orgPending } =
-    authClient.useActiveOrganization();
+  const { workspace, loading: workspaceLoading } = useWorkspace();
   const { isOwner } = useRole();
   const [badges, setBadges] = useState<DashboardBadges | null>(null);
+  // Sidebar recolhida (só ícones). `hydrated` existe só para não animar a
+  // largura no primeiro paint: a preferência mora no localStorage e só pode ser
+  // lida depois da montagem, senão o SSR e o cliente divergem.
+  const [collapsed, setCollapsed] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
+  const orgId = workspace?.activeOrganizationId ?? undefined;
+  useEffect(() => {
+    if (!orgId) return;
+    setCollapsed(isSidebarCollapsed(orgId));
+    setHydrated(true);
+  }, [orgId]);
+
+  const toggleSidebar = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    if (orgId) setSidebarCollapsed(orgId, next);
+  };
+
+  // Portão único de entrada do app. A decisão sai do `GET /me/workspace`
+  // (verdade do servidor) e não do cache do client do Better-Auth: aquele átomo
+  // não é redisparado no login e mandava quem já tinha buffet para o onboarding.
   useEffect(() => {
     if (isPending) return;
     if (!session) {
       router.replace("/login");
-    } else if (!orgPending && !activeOrg) {
-      // Sessão sem organização ativa → onboarding guiado (cria a org).
-      router.replace("/onboarding");
+      return;
     }
-  }, [isPending, session, orgPending, activeOrg, router]);
+    if (workspaceLoading || !workspace) return;
+    if (!workspace.activeOrganizationId) {
+      // Sem vínculo vivo: aceitar um convite pendente ou criar o primeiro buffet.
+      router.replace(resolveEntryRoute(workspace));
+    }
+  }, [isPending, session, workspaceLoading, workspace, router]);
 
   const loadBadges = useCallback(async () => {
-    if (!activeOrg) return;
+    if (!orgId) return;
     // Endpoint próprio (duas contagens) em vez do /dashboard/summary: o shell
     // envolve todas as páginas e recarregaria a agregação pesada a cada rota.
     setBadges(await api.get<DashboardBadges>("/dashboard/badges"));
-  }, [activeOrg]);
+  }, [orgId]);
 
   // `pathname` na dependência: navegar entre páginas revalida os contadores,
   // que é quando eles podem ter mudado (ex.: acabei de atender um lead).
@@ -95,7 +134,23 @@ export default function DashboardLayout({
     loadBadges().catch(() => setBadges(null));
   }, [loadBadges, pathname]);
 
-  if (isPending || !session || (!orgPending && !activeOrg)) {
+  // O Next reseta a rolagem da *janela* ao navegar; como quem rola aqui é o
+  // <main>, sem isto a página seguinte abre na altura em que a anterior parou.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
+
+  // Seção atual, para o breadcrumb do header e para o realce da navegação.
+  const section = NAV.find((item) =>
+    isCurrentSection(pathname, item.href)
+  )?.label;
+
+  if (
+    isPending ||
+    !session ||
+    workspaceLoading ||
+    !workspace?.activeOrganizationId
+  ) {
     return (
       <div
         role="status"
@@ -108,12 +163,26 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-semibold">
-            {activeOrg?.name ?? "Buffet System"}
-          </span>
+    // App shell a partir de `sm:`: a altura é a da viewport e quem rola é só o
+    // <main>, então header e sidebar ficam fixos. No mobile o documento rola
+    // normalmente — travar o body ali impede a barra de endereço de recolher e
+    // custaria ~105px permanentes de chrome numa tela pequena.
+    <div className="flex min-h-dvh flex-col sm:h-dvh sm:overflow-hidden">
+      <header className="flex items-center justify-between border-b px-4 py-3 sm:shrink-0 sm:px-6">
+        {/* Breadcrumb: buffet ativo (que também troca de buffet) › seção. A
+            seção é `aria-hidden` — a navegação lateral já a anuncia com
+            `aria-current`, e repetir vira ruído no leitor de tela. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <OrgSwitcher workspace={workspace} />
+          {section && (
+            <span
+              aria-hidden="true"
+              className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground sm:flex"
+            >
+              <span className="text-border">/</span>
+              <span className="truncate">{section}</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">
@@ -132,15 +201,21 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col sm:flex-row">
+      {/* `sm:min-h-0`: sem isso o filho flex adota a altura do conteúdo e o
+          `overflow-y-auto` do <main> nunca chega a rolar — empurra o shell. */}
+      <div className="flex flex-1 flex-col sm:min-h-0 sm:flex-row">
+        {/* O recolhimento vale só a partir de `sm:`: no mobile este mesmo nav é
+            a barra horizontal rolável abaixo do header, onde não há o que ganhar. */}
         <nav
           aria-label="Seções do painel"
-          className="flex gap-1 overflow-x-auto border-b p-2 sm:w-52 sm:flex-col sm:border-b-0 sm:border-r"
+          className={cn(
+            "flex gap-1 overflow-x-auto border-b p-2 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:border-b-0 sm:border-r",
+            collapsed ? "sm:w-14" : "sm:w-52",
+            hydrated && "sm:transition-[width]"
+          )}
         >
           {NAV.filter((item) => !item.ownerOnly || isOwner).map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const active = isCurrentSection(pathname, item.href);
             const count = item.badge ? (badges?.[item.badge] ?? 0) : 0;
             const Icon = item.icon;
             return (
@@ -148,18 +223,36 @@ export default function DashboardLayout({
                 key={item.href}
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "bg-secondary font-medium text-secondary-foreground"
-                    : "text-muted-foreground hover:bg-accent"
-                }`}
+                    : "text-muted-foreground hover:bg-accent",
+                  collapsed && "sm:justify-center sm:gap-0 sm:px-0"
+                )}
               >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="flex-1">{item.label}</span>
+                <span className="relative shrink-0">
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {/* Recolhido não cabe o número: vira um ponto, e a contagem
+                      segue anunciada pelo Badge em `sr-only`. */}
+                  {count > 0 && collapsed && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-brand sm:block"
+                    />
+                  )}
+                </span>
+                <span className={cn("flex-1", collapsed && "sm:sr-only")}>
+                  {item.label}
+                </span>
                 {count > 0 && (
                   <Badge
                     variant="default"
-                    className="shrink-0 bg-brand text-brand-foreground"
+                    className={cn(
+                      "shrink-0 bg-brand text-brand-foreground",
+                      collapsed && "sm:sr-only"
+                    )}
                   >
                     {count}
                     <span className="sr-only"> aguardando atenção</span>
@@ -168,11 +261,41 @@ export default function DashboardLayout({
               </Link>
             );
           })}
+
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            className={cn(
+              "mt-auto hidden shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex",
+              collapsed && "sm:justify-center sm:gap-0 sm:px-0"
+            )}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4 shrink-0" aria-hidden="true" />
+            )}
+            <span className={cn("flex-1 text-left", collapsed && "sm:sr-only")}>
+              Recolher
+            </span>
+          </button>
         </nav>
         {/* min-w-0: permite ao main encolher abaixo do conteúdo, contendo o
             scroll-x de áreas largas (ex.: o kanban) dentro delas em vez de
-            empurrar o layout inteiro. */}
-        <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
+            empurrar o layout inteiro.
+            data-app-scroll: marca o container de rolagem para o `Modal` travar
+            a rolagem de fundo aqui — o `overflow: hidden` no body não alcança
+            um scroller interno. */}
+        <main
+          ref={mainRef}
+          data-app-scroll
+          className="min-w-0 flex-1 p-4 sm:overflow-y-auto sm:p-6"
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

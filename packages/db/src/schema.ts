@@ -7,6 +7,7 @@ import {
   integer,
   primaryKey,
   index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { generateId } from "./id.js";
@@ -27,6 +28,14 @@ export const user = pgTable("user", {
   banned: boolean("banned"),
   banReason: text("banReason"),
   banExpires: timestamp("banExpires"),
+  // Última organização escolhida no seletor do painel. Restaurada ao criar a
+  // sessão (ver `pickActiveOrganizationId` em @buffet/auth): sem isto, quem tem
+  // mais de um buffet sempre reabre no vínculo mais antigo. `set null` para a
+  // linha não apontar para um buffet excluído.
+  lastOrganizationId: text("lastOrganizationId").references(
+    (): AnyPgColumn => organization.id,
+    { onDelete: "set null" }
+  ),
 });
 
 export const session = pgTable("session", {
@@ -298,23 +307,28 @@ export const leadNotes = pgTable(
     body: text("body").notNull(),
     createdAt: timestamp("createdAt").notNull().defaultNow(),
   },
-  (table) => [index("lead_notes_budget_idx").on(table.budgetId, table.createdAt)]
+  (table) => [
+    index("lead_notes_budget_idx").on(table.budgetId, table.createdAt),
+  ]
 );
 
 // ==========================================
 // 4. RELATIONS (Drizzle relational queries)
 // ==========================================
 
-export const organizationRelations = relations(organization, ({ many, one }) => ({
-  members: many(member),
-  items: many(items),
-  packages: many(packages),
-  leadsBudgets: many(leadsBudgets),
-  publicSettings: one(orgPublicSettings, {
-    fields: [organization.id],
-    references: [orgPublicSettings.organizationId],
-  }),
-}));
+export const organizationRelations = relations(
+  organization,
+  ({ many, one }) => ({
+    members: many(member),
+    items: many(items),
+    packages: many(packages),
+    leadsBudgets: many(leadsBudgets),
+    publicSettings: one(orgPublicSettings, {
+      fields: [organization.id],
+      references: [orgPublicSettings.organizationId],
+    }),
+  })
+);
 
 export const orgPublicSettingsRelations = relations(
   orgPublicSettings,

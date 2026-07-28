@@ -15,6 +15,7 @@ import {
   type PublicTheme,
   type BrandColor,
   type LeadStatus,
+  type MemberRole,
 } from "./domain.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
@@ -90,7 +91,11 @@ export type ReorderPackagesInput = z.infer<typeof reorderPackagesSchema>;
 export const createPublicLeadSchema = z.object({
   slug: z.string().min(1),
   customerName: z.string().min(1, "Informe seu nome").max(120),
-  customerEmail: z.string().email("E-mail inválido").optional().or(z.literal("")),
+  customerEmail: z
+    .string()
+    .email("E-mail inválido")
+    .optional()
+    .or(z.literal("")),
   customerPhone: z.string().min(8, "Informe um WhatsApp válido").max(20),
   eventDate: z.string().datetime().optional().or(z.literal("")),
   guestCount: z.coerce.number().int().positive().max(100000).optional(),
@@ -255,7 +260,9 @@ export type UpdatePageSettingsInput = z.infer<typeof updatePageSettingsSchema>;
 export const presignUploadSchema = z.object({
   scope: uploadScopeSchema,
   contentType: z.enum(ALLOWED_IMAGE_TYPES, {
-    errorMap: () => ({ message: "Formato não suportado. Use JPG, PNG ou WebP." }),
+    errorMap: () => ({
+      message: "Formato não suportado. Use JPG, PNG ou WebP.",
+    }),
   }),
   size: z.coerce
     .number()
@@ -525,3 +532,47 @@ export interface DashboardBadges {
   /** `null` para `member` (RNF04). */
   overduePayments: number | null;
 }
+
+// ==========================================
+// Workspace do usuário (multi-organização)
+// ==========================================
+
+/** Um buffet do qual o usuário participa, com o papel dele nele (RNF04). */
+export interface WorkspaceOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  logo: string | null;
+  role: MemberRole;
+}
+
+/** Convite pendente endereçado ao e-mail do usuário logado (RF34). */
+export interface WorkspaceInvitation {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  role: MemberRole;
+  inviterName: string | null;
+  /** ISO — carimbo de tempo real, renderize em horário local. */
+  expiresAt: string;
+}
+
+/**
+ * Resposta de `GET /me/workspace`. É a **verdade do servidor** sobre onde o
+ * usuário pode entrar: o front decide o destino pós-login a partir daqui, em vez
+ * de confiar no cache do client do Better-Auth (RNF05).
+ */
+export interface Workspace {
+  /** `null` quando o usuário ainda não tem nenhum vínculo vivo. */
+  activeOrganizationId: string | null;
+  organizations: WorkspaceOrganization[];
+  invitations: WorkspaceInvitation[];
+}
+
+/** Corpo de `POST /me/active-organization` — troca de buffet no seletor. */
+export const setActiveOrganizationSchema = z.object({
+  organizationId: z.string().min(1, "Informe a organização"),
+});
+export type SetActiveOrganizationInput = z.infer<
+  typeof setActiveOrganizationSchema
+>;

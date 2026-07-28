@@ -13,18 +13,18 @@ import { UploadsModule } from "./uploads/uploads.module.js";
 import { PageSettingsModule } from "./page-settings/page-settings.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { MailModule } from "./mail/mail.module.js";
+import { MeModule } from "./me/me.module.js";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     // RNF06: baseline rate limiting (tightened per-route on the public form).
-    ThrottlerModule.forRoot([
-      { name: "default", ttl: 60_000, limit: 100 },
-    ]),
+    ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     DatabaseModule,
     // Antes do AuthModule: o factory do Better-Auth injeta o MailerService.
     MailModule,
     AuthModule,
+    MeModule,
     ItemsModule,
     PackagesModule,
     PublicModule,

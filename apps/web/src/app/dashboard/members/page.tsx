@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { MEMBER_ROLE_LABELS, type MemberRole } from "@buffet/shared";
 import { authClient } from "@/lib/auth-client";
+import { useActiveOrg } from "@/lib/use-active-org";
 import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,13 +20,14 @@ import {
 } from "@/components/ui/card";
 
 export default function MembersPage() {
-  const { data: activeOrg, refetch } = authClient.useActiveOrganization();
+  const { data: activeOrg, refetch } = useActiveOrg();
   const { isOwner } = useRole();
 
   const [email, setEmail] = useState("");
-  const [invited, setInvited] = useState<{ email: string; link: string } | null>(
-    null
-  );
+  const [invited, setInvited] = useState<{
+    email: string;
+    link: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -144,8 +147,8 @@ export default function MembersPage() {
               className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
             >
               <span>{m.user?.email ?? m.userId}</span>
-              <span className="capitalize text-muted-foreground">
-                {m.role === "owner" ? "Proprietário" : "Funcionário"}
+              <span className="text-muted-foreground">
+                {MEMBER_ROLE_LABELS[m.role as MemberRole] ?? m.role}
               </span>
             </div>
           ))}

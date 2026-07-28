@@ -9,6 +9,11 @@ import { z } from "zod";
 export const MEMBER_ROLES = ["owner", "member"] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
 
+export const MEMBER_ROLE_LABELS: Record<MemberRole, string> = {
+  owner: "Proprietário",
+  member: "Funcionário",
+};
+
 // --- Catalog item types (RF01-RF12: unified `items` table via `type`) ---
 export const ITEM_TYPES = ["dish", "drink", "service"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -132,7 +137,10 @@ export const BRAND_PRESETS: Record<BrandColor, BrandPreset> = {
   },
   petroleo: {
     label: "Petróleo",
-    light: { brand: "oklch(0.52 0.09 220)", foreground: "oklch(0.99 0.005 60)" },
+    light: {
+      brand: "oklch(0.52 0.09 220)",
+      foreground: "oklch(0.99 0.005 60)",
+    },
     dark: { brand: "oklch(0.76 0.1 220)", foreground: "oklch(0.19 0.03 220)" },
   },
   rose: {
@@ -142,7 +150,10 @@ export const BRAND_PRESETS: Record<BrandColor, BrandPreset> = {
   },
   ameixa: {
     label: "Ameixa",
-    light: { brand: "oklch(0.45 0.15 320)", foreground: "oklch(0.99 0.005 60)" },
+    light: {
+      brand: "oklch(0.45 0.15 320)",
+      foreground: "oklch(0.99 0.005 60)",
+    },
     dark: { brand: "oklch(0.72 0.13 320)", foreground: "oklch(0.18 0.03 320)" },
   },
   grafite: {

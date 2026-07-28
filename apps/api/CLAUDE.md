@@ -23,6 +23,13 @@ Registre o módulo em [`src/app.module.ts`](src/app.module.ts). Referências: `i
 `leads/`, `finance/`, `public/`, `page-settings/`, `dashboard/`. Infra transversal em `common/`,
 `auth/`, `database/`, `uploads/` (este último é `@Global` e exporta o `UploadsService`).
 
+**Exceção: `me/`** é o único módulo **sem `@ActiveOrg()`** — usa `@CurrentUser()`, porque por
+definição atende quem ainda não tem organização (funcionário recém-convidado) e o `@ActiveOrg()`
+lança `ForbiddenException` nesse caso. `GET /me/workspace` devolve buffets do usuário + convites
+pendentes e é a **fonte que o front usa para decidir o destino pós-login**;
+`POST /me/active-organization` troca a org da sessão (via `auth.api.setActiveOrganization`) e grava
+`user.lastOrganizationId`, que o hook de criação de sessão restaura no próximo login.
+
 **Reuso entre módulos:** quando um módulo precisa da regra de outro, exporte o service e importe o
 módulo — nada de duplicar a query. Precedentes: `PublicModule` exporta o `PublicService`
 (`buildPageData`, reusado pela prévia) e `FinanceModule` exporta o `FinanceService`

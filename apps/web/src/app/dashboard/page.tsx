@@ -8,7 +8,8 @@ import {
   type DashboardSummary,
 } from "@buffet/shared";
 import { api, errorMessage } from "@/lib/api";
-import { authClient, useSession } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth-client";
+import { useActiveOrg } from "@/lib/use-active-org";
 import { useRole } from "@/lib/use-role";
 import { dismissChecklist, isChecklistDismissed } from "@/lib/onboarding";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -29,7 +30,7 @@ import { UpcomingPayments } from "@/components/dashboard/upcoming-payments";
  */
 export default function DashboardPage() {
   const { data: session } = useSession();
-  const { data: activeOrg } = authClient.useActiveOrganization();
+  const { data: activeOrg } = useActiveOrg();
   const { isOwner } = useRole();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
