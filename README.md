@@ -79,9 +79,13 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 | Catálogo (itens/bebidas/serviços) | RF01–RF12 | ✅ |
 | Pacotes de serviço | RF13–RF16 | ✅ |
 | Captação pública de leads | RF17, RF18 | ✅ |
-| Funil de negociações | RF19–RF22 | ✅ |
+| Funil de negociações | RF19–RF22, RF35 (histórico datado com autoria) | ✅ |
 | Financeiro (parcelas + baixa) | RF23, RF24 | ✅ |
 | Página pública personalizável | RF25–RF28, RNF07 (upload isolado) | ✅ |
+| Painel operacional | RF29 (funil, eventos, vencimentos), RF30 (checklist de configuração) | ✅ |
+| Agenda de eventos | RF31 (calendário mensal + conflito de data, integrado ao RF21) | ✅ |
+| Comunicação e acesso | RF32 (aviso de novo lead), RF33 (recuperação de senha), RF34 (convite por e-mail), RNF09 (e-mail plugável) | ✅ |
+| Feedback e acessibilidade da UI | RNF08 (estados de carga/sucesso/erro, erro por campo, diálogo acessível) | ✅ |
 | Não funcionais | RNF01 (auth), RNF02 (mobile), RNF04 (RBAC), RNF05 (isolamento), RNF06 (anti-spam) | ✅ |
 
 > **RNF03 — Backup:** em produção o banco roda no **Neon**, que oferece backups
@@ -89,9 +93,17 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 > nenhuma rotina manual é necessária. No ambiente local (Docker) não há backup;
 > use `pnpm db:seed` para recriar dados de exemplo.
 
-> **Fora de escopo do MVP:** notificação automática de novo lead; comprovantes
-> financeiros continuam sendo link (o storage de imagens cobre só a página
-> pública); template de proposta por organização; deploy.
+> **E-mail (RNF09):** sem `RESEND_API_KEY` no `.env`, o sistema usa o **driver
+> console** — o e-mail é impresso no terminal da API com os links clicáveis, e
+> recuperação de senha e convite funcionam ponta a ponta sem provedor externo.
+> É o modo recomendado para desenvolvimento e demonstração. Para enviar de
+> verdade, gere uma chave no [Resend](https://resend.com); note que o remetente
+> padrão `onboarding@resend.dev` só entrega para o e-mail dono da conta Resend —
+> em produção, verifique seu próprio domínio e ajuste `MAIL_FROM`.
+
+> **Fora de escopo do MVP:** web push e central de notificações no painel;
+> comprovantes financeiros continuam sendo link (o storage de imagens cobre só a
+> página pública); template de proposta por organização; deploy.
 
 ## Roadmap (sprints)
 
@@ -106,3 +118,26 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 8. **Página pública personalizável — os 3 templates** (Vitrine, Elegante, Direto) ✅
 9. **Página pública personalizável — prévia ao vivo e fechamento** (editor em duas
    colunas, prévia celular/computador em iframe) ✅
+10. **Camada de feedback e acessibilidade** (toast, esqueletos, estado vazio com ação,
+    diálogo de confirmação acessível, erro de validação por campo) ✅
+11. **Painel operacional** (agregação em SQL escopada por org, home com funil/eventos/
+    vencimentos, checklist de configuração, badge de leads novos) ✅
+12. **E-mail transacional** (mailer plugável com driver console, aviso de novo lead,
+    recuperação de senha, convite de membro por e-mail) ✅
+13. **Agenda de eventos** (calendário mensal em UTC, lista do dia, conflito de data
+    ligado ao alerta da negociação; primeiros testes do `apps/web`) ✅
+14. **Histórico de interações datado** (tabela `lead_notes` append-only com autor e
+    carimbo de tempo, backfill do texto anterior; busca de leads no servidor) ✅
+15. **Correções de `/code-review` + `/security-review`** (revogação de acesso, escape de
+    HTML nos e-mails, invariante do cronograma, `trust proxy`, teto do orçamento) ✅
+
+### Achados corrigidos na revisão (Sprint 15)
+
+| Achado | Severidade | Correção |
+|---|---|---|
+| Sessão de membro removido mantinha acesso ao tenant — o Better-Auth só limpa `activeOrganizationId` quando o usuário se remove a si mesmo | **Alta** | `@ActiveOrg()` passa a derivar a org da linha `member`, não da sessão. Fecha toda rota de uma vez |
+| HTML não escapado nos e-mails: `customerName` (formulário público, anônimo) e nome da org/convidante viravam marcação enviada pelo domínio verificado | Média | `esc()` em todo valor dinâmico do HTML |
+| `auth.member!.role` estourava 500 em vez de 403 | Média | Novo decorator `@CurrentRole()` |
+| Alterar pacote/convidados com cronograma gerado quebrava a soma das parcelas, sem como regerar | Média | `409` pedindo excluir as parcelas antes |
+| Sem `trust proxy`, o limite de 5/min do formulário público virava um balde global atrás de LB | Média | `TRUST_PROXY` opt-in (desligado em dev, para não permitir forjar `X-Forwarded-For`) |
+| `pricePerPerson × guestCount` podia estourar `numeric(12,2)` → 500 e lead perdido | Baixa | `fitsBudgetTotal()` recusa com 400 legível |

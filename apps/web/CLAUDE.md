@@ -101,15 +101,23 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 
 ## UI & estilo
 
-- **shadcn/ui "new-york"**, subconjunto enxuto em [`src/components/ui/`](src/components/ui) — só
-  `button`, `badge`, `card`, `input`, `label`, `modal`, `tabs`, `select`, `textarea`, `switch`,
-  `image-upload`. Adicione primitives conforme a necessidade, no mesmo estilo.
+- **shadcn/ui "new-york"**, subconjunto enxuto em [`src/components/ui/`](src/components/ui), **escrito
+  à mão — zero Radix instalado**: `button`, `badge`, `card`, `input`, `label`, `modal`, `tabs`,
+  `select`, `textarea`, `switch`, `image-upload`, `toast`, `skeleton`, `empty-state`, `alert`,
+  `table`, `confirm-dialog`, `form-error`. Adicione primitives conforme a necessidade, no mesmo
+  estilo — **não** traga Radix nem outra lib de UI para resolver o que cabe em 40 linhas aqui.
 - **Imagens** são `<img loading="lazy" decoding="async">` com `aspect-*` fixo no contêiner — o
   projeto **não usa `next/image`** (evita configurar `remotePatterns` por host). Upload é sempre pelo
   `ImageUpload`, que reduz o arquivo em canvas (`lib/image.ts`) e envia direto ao bucket.
-- **`Modal` é custom** (não Radix Dialog): backdrop fixo, Escape para fechar, bottom-sheet no mobile /
+- **`Modal` é custom** (não Radix Dialog): `role="dialog"` + `aria-modal`, foco preso no painel e
+  restaurado ao fechar, botão X, Escape fechando **só o modal do topo**, bottom-sheet no mobile /
   card centralizado em `sm:`. É o que dirige todos os fluxos de create/edit (via um state `modal`
   como discriminated union na página).
+  ⚠️ A **trava de scroll é contada** por uma pilha no módulo, porque o app aninha modal dentro de
+  modal (kanban → motivo da perda; negociação → excluir parcela). Um `overflow: hidden` sem contador
+  destrava o body ao fechar o de cima, com o de baixo ainda aberto.
+  O backdrop só fecha se o `mousedown` **começou** nele — senão arrastar uma seleção de texto para
+  fora do painel descartaria o formulário.
 - `cn()` em [`src/lib/utils.ts`](src/lib/utils.ts) = `twMerge(clsx(...))`. `class-variance-authority`
   só em `button.tsx` (`buttonVariants`); `badge.tsx` usa um mapa de variantes manual.
 - **Tailwind v4 sem `tailwind.config.js`** — tudo em [`globals.css`](src/app/globals.css) via `@theme`
@@ -119,14 +127,27 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 ## Formulários
 
 - **Sem react-hook-form e sem zod resolver.** Cada form usa `useState` por campo, `handleSubmit(e)`
-  manual com `e.preventDefault()`, booleans `saving`/`loading` e string `error`. Validação = HTML
-  nativo (`required`, `type`, `minLength`, `inputMode`) + o `ApiError` do servidor. (Os schemas Zod
-  vivem no backend, em `@buffet/shared`.)
-- **Sem toast.** Feedback é inline (`<p className="text-sm text-destructive">{error}</p>`), swaps
-  transitórios de label ("Copiado!" com `setTimeout`), e `confirm()`/`alert()` nativos em ações destrutivas.
-- **Sem tanstack table.** Tabelas são `<table className="w-full text-sm">` simples (`thead` com
-  `bg-muted/40`, linhas com `border-b`). O catálogo tem um helper genérico `CatalogTable<T>`; outras
-  páginas inlinam a tabela.
+  manual com `e.preventDefault()`, booleans `saving`/`loading` e um state `error: unknown` (guarda o
+  erro **cru**, não a mensagem). Validação = HTML nativo (`required`, `type`, `minLength`,
+  `inputMode`) + o `ApiError` do servidor. (Os schemas Zod vivem no backend, em `@buffet/shared`.)
+- **Feedback (RNF08) — a regra de divisão:**
+  - **erro de validação** (o `ApiError` traz o mapa `errors`) → **inline**, via
+    `<FormError error={error} labels={FIELD_LABELS} />`. Guarde o erro cru (`setError(err)`), nunca
+    `err.message` — é o objeto que carrega o erro por campo.
+  - **erro de operação** (409/500/rede) e **todo sucesso** → **toast**, via `useToast()`.
+  - Helpers em [`src/lib/api.ts`](src/lib/api.ts): `errorMessage(err, fallback)` (cobre também
+    string crua de validação local e falha de rede, que rejeita como `TypeError`) e `fieldErrors(err)`.
+- **Ações destrutivas usam `ConfirmDialog`**, nunca `confirm()`/`alert()` nativos. O foco inicial
+  cai em "Cancelar" — um Enter reflexo não pode apagar dado do usuário.
+- **Carregamento usa esqueleto**, não `<p>Carregando...</p>`: `SkeletonTable`/`SkeletonCards`/
+  `SkeletonList` de `ui/skeleton` (já embutem `role="status"` + `sr-only`). Exceção: os gates de
+  sessão de tela cheia (`dashboard/layout`, `onboarding`, `invite`) seguem com texto + `role="status"`.
+- **Vazio usa `EmptyState`** com ação. Distinga sempre "nunca teve nada" (CTA de criar) de "o filtro
+  não achou" (CTA de limpar busca) — são estados diferentes com saídas diferentes.
+- **Sem tanstack table.** Use `DataTable<T>` de [`ui/table`](src/components/ui/table.tsx) (`columns`,
+  `rowKey`, `actions`, `empty`, `onRowClick`) ou as partes compostas `Table/THead/Tr/Th/Td`.
+  Em `onRowClick`, a primeira coluna vira um `<button>` de verdade — nada de `role="button"` no
+  `<tr>`, que destruiria a semântica de tabela para o leitor de tela.
 
 ## Padrões por feature (referência)
 
@@ -185,8 +206,14 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 
 ## Estado, config & testes
 
-- **Sem store global e sem context providers** (nada de Redux/Zustand/context custom). O único estado
-  "global" é o interno do Better-Auth via os hooks do `authClient`.
+- **Sem store global** (nada de Redux/Zustand). O estado "global" é o interno do Better-Auth via os
+  hooks do `authClient`.
+- **Um único context provider, e é exceção deliberada:** o `ToastProvider`
+  ([`ui/toast.tsx`](src/components/ui/toast.tsx)), montado no `app/layout.tsx`. Existe porque um
+  toast precisa ser disparável de qualquer profundidade da árvore sem prop drilling. **Não abra
+  precedente** — para qualquer outro estado compartilhado, passe por props ou refaça o fetch.
+  `useToast()` fora do provider devolve um no-op (a prévia da página pública roda dentro de um
+  `<iframe>`, com árvore React própria).
 - **Dependências de UI enxutas:** além de shadcn/lucide, a única lib de UI é **`@dnd-kit/core`**
   (drag-and-drop do kanban do funil, com sensores de ponteiro e teclado). Prefira resolver com o que
   já existe antes de adicionar libs.
@@ -195,4 +222,14 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 - Base da API lida inline: `process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"` (em `lib/api.ts`,
   `lib/auth-client.ts`, `[slug]/page.tsx`). `tsconfig` é standalone (`moduleResolution: Bundler`,
   alias `@/* → ./src/*`) — aqui imports **não** usam extensão `.js`.
-- **Sem testes no web hoje.** Se adicionar, alinhe com o setup Vitest do restante do monorepo.
+- **Testes:** Vitest (`vitest run --passWithNoTests`), arquivos `*.test.ts` **colocados**, sem
+  `vitest.config` — igual ao resto do monorepo. Hoje só
+  [`lib/calendar.test.ts`](src/lib/calendar.test.ts): o alvo é **lógica pura**, testável sem DOM.
+  Não há setup de testing-library; para comportamento de componente, prefira extrair a regra para
+  `lib/` e testar lá.
+- **Datas e fuso — a regra que mais quebra aqui:** `eventDate` é uma **data-sem-hora** guardada à
+  meia-noite UTC. Todo cálculo de calendário usa `Date.UTC`/`getUTCDate`
+  ([`lib/calendar.ts`](src/lib/calendar.ts)); `new Date(y, m, d)` é construído no fuso local e, em
+  `America/Sao_Paulo` (UTC-3), joga o dia 1 para a célula anterior do grid. Para agrupar por dia,
+  fatie a string ISO (`eventDate.slice(0, 10)`) em vez de instanciar `Date`. Os testes de
+  `calendar.test.ts` rodam verde de UTC-8 a UTC+14 — rode com `TZ=...` ao mexer neles.

@@ -14,6 +14,17 @@ async function bootstrap() {
     bodyParser: false,
   });
 
+  // RNF06: atrás de proxy/load balancer, `req.ip` seria sempre o IP do proxy —
+  // o throttle de 5/min do formulário público viraria um balde único
+  // compartilhado por todos os visitantes de todos os buffets, em vez de um por
+  // IP. `TRUST_PROXY` define quantos saltos confiar (ex.: "1" atrás de um LB).
+  // Fica desligado por padrão: confiar no header sem proxy na frente deixaria o
+  // cliente forjar `X-Forwarded-For` e escapar do limite.
+  const trustProxy = process.env.TRUST_PROXY?.trim();
+  if (trustProxy) {
+    app.set("trust proxy", /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  }
+
   const trustedOrigins = (process.env.TRUSTED_ORIGINS ?? "http://localhost:3000")
     .split(",")
     .map((o) => o.trim());

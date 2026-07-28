@@ -20,8 +20,13 @@ items/
 
 O módulo é mínimo — não precisa de `imports` porque os tokens `DB` e `AUTH` são `@Global`.
 Registre o módulo em [`src/app.module.ts`](src/app.module.ts). Referências: `items/`, `packages/`,
-`leads/`, `finance/`, `public/`, `page-settings/`. Infra transversal em `common/`, `auth/`,
-`database/`, `uploads/` (este último é `@Global` e exporta o `UploadsService`).
+`leads/`, `finance/`, `public/`, `page-settings/`, `dashboard/`. Infra transversal em `common/`,
+`auth/`, `database/`, `uploads/` (este último é `@Global` e exporta o `UploadsService`).
+
+**Reuso entre módulos:** quando um módulo precisa da regra de outro, exporte o service e importe o
+módulo — nada de duplicar a query. Precedentes: `PublicModule` exporta o `PublicService`
+(`buildPageData`, reusado pela prévia) e `FinanceModule` exporta o `FinanceService`
+(`totals()`, reusado pelo `DashboardModule`).
 
 ## Controllers
 
@@ -84,8 +89,17 @@ Opt-outs e decorators ([`auth/auth.constants.ts`](src/auth/auth.constants.ts),
 - `@Public()` — pula o `AuthGuard` (ex.: health check, endpoints públicos).
 - `@Roles("owner")` — em **método ou classe** (o `FinanceController` inteiro é `@Roles("owner")`).
   Roles são `"owner" | "member"` (de `@buffet/shared`).
-- `@ActiveOrg()` — retorna `session.activeOrganizationId`; lança `ForbiddenException` se não houver
-  org ativa. É o ponto de entrada padrão de toda rota tenant-scoped.
+- `@ActiveOrg()` — retorna **`member.organizationId`**, não o campo da sessão; lança
+  `ForbiddenException` se não houver associação viva. É o ponto de entrada padrão de toda rota
+  tenant-scoped.
+  ⚠️ **Nunca volte a ler `session.activeOrganizationId` aqui.** O Better-Auth só limpa esse campo
+  quando o usuário se remove *a si mesmo* (`crud-members.mjs`): quando o proprietário demite um
+  funcionário, a sessão dele continua apontando para a org. Como o `RolesGuard` passa direto em rota
+  sem `@Roles` (a maioria), confiar na sessão manteria o acesso do ex-funcionário até ela expirar —
+  e a sessão *desliza* a cada uso, então seria indefinido. O `AuthGuard` já relê a linha `member` em
+  toda requisição, então checar aqui não custa query.
+- `@CurrentRole()` — o papel na org ativa, com a mesma garantia. Use no lugar de
+  `auth.member!.role`, que virava 500 em vez de 403 quando a associação sumia.
 - `@CurrentUser()` — retorna o `AuthContext` completo.
 
 ## Multi-tenancy (RNF05)
@@ -152,6 +166,37 @@ objeto órfão (é o que `PackagesService.removeImage` faz). Na ordem inversa �
 adiada, como no editor da página — só apague **depois** do save, senão a página fica com foto
 quebrada apontando para um objeto que já morreu.
 
+## E-mail transacional (RNF09)
+
+[`src/mail/`](src/mail) é `@Global` e exporta o `MailerService`. Duas regras ao mexer nisso:
+
+- **`send()` nunca lança.** Captura o erro, loga e devolve `{ ok: false }`. E-mail é efeito
+  colateral — não pode derrubar cadastro, convite nem a captação de um lead (RF18).
+- **Nada de `await` no caminho de uma requisição do visitante.** O aviso de novo lead (RF32) sai
+  com `void this.notifyNewLead(...).catch(...)` **depois** do insert: quem está do outro lado do
+  `POST /public/leads` é um cliente esperando o orçamento, não pode pagar a latência do provedor.
+
+- **Todo valor dinâmico no HTML passa por `esc()`** ([`mail.templates.ts`](src/mail/mail.templates.ts)).
+  Os templates montam HTML por concatenação, e dois valores atravessam fronteira de confiança: o
+  `customerName` do formulário público (anônimo) e o nome da org/convidante (cadastro self-service,
+  sem limite de tamanho). Sem escape, o atacante autora marcação num e-mail que sai do **seu**
+  domínio verificado — não é XSS (cliente de e-mail remove script), é phishing com remetente
+  confiável. `subject` e `text` são texto puro e não precisam de escape.
+
+O driver é escolhido no construtor: com `RESEND_API_KEY` faz `POST` para a API do Resend (via
+`fetch` global — **não** adicione o SDK); sem ela, imprime o e-mail no terminal, com os links. É o
+que mantém reset de senha e convite funcionando em dev sem provedor.
+
+Os hooks do Better-Auth (`sendResetPassword`, `sendInvitationEmail`) moram em `@buffet/auth`, que
+recebe um **port** `AuthMailPort` por injeção — o pacote de auth continua agnóstico de provedor, do
+mesmo jeito que já recebe o `db`. O adaptador está em [`src/auth/auth.module.ts`](src/auth/auth.module.ts).
+
+⚠️ **Pegadinha do reset (RF33):** o `url` entregue ao `sendResetPassword` aponta para a **API**
+(`${baseURL}/api/auth/reset-password/:token?callbackURL=...`), que só redireciona para o
+`callbackURL`. O cliente **tem** que mandar `redirectTo` no `requestPasswordReset`, senão o
+parâmetro vem vazio e o link do e-mail morre numa tela em branco. O origin precisa estar em
+`TRUSTED_ORIGINS` — a rota faz `originCheck`.
+
 ## Camada de dados (`@buffet/db`)
 
 - `schema.ts` — `pgTable` + `relations` + tipos inferidos (`type Item = typeof items.$inferSelect`,
@@ -163,11 +208,25 @@ quebrada apontando para um objeto que já morreu.
 
 ## Erros & respostas
 
+- **Agregação é no Postgres, não em Node.** `count(*)::int`, `sum(...) filter (where ...)`, `group by`
+  e window functions — nunca puxe as linhas para somar em JS. Duas pegadinhas ao agregar:
+  - **Dinheiro:** `sum()` sobre zero linhas devolve `NULL` e a escala não é garantida. Use
+    `coalesce(sum(...), 0)::numeric(12,2)` tipado como `sql<string>`, senão o valor não casa com o
+    `moneySchema` nem com o `formatBRL` (dinheiro é string decimal).
+  - **`GROUP BY` não emite linha zero:** preencha as chaves ausentes em JS iterando o enum de
+    `@buffet/shared` (é o que o `DashboardService` faz com `LEAD_STATUSES`).
+  Referência: [`src/dashboard/dashboard.service.ts`](src/dashboard/dashboard.service.ts) e
+  `FinanceService.totals()`.
+- **Recorte por papel (RNF04) mora no service, não no controller.** Quando um bloco da resposta é
+  restrito, ele **não é consultado** para quem não tem direito — em vez de calcular e descartar. Ver
+  `DashboardService.summary(orgId, role)`, que devolve `finance: null` para `member`.
 - **Sem** exception filter ou interceptor de wrapping custom — usa a serialização padrão do Nest.
 - Exceções nativas do Nest com **mensagens pt-BR**: `NotFoundException`, `BadRequestException`,
   `ConflictException`, `ForbiddenException`, `UnauthorizedException`.
-- **Sem paginação** — listas retornam o conjunto todo, ordenado (`desc(createdAt)` em geral,
-  `asc(dueDate)` em parcelas).
+- **Sem paginação, por decisão.** O kanban do funil precisa de todos os status de uma vez, e paginar
+  quebraria a visão. `GET /leads` tem **teto de 500 linhas** (`desc(createdAt)`) + busca por termo no
+  servidor (`?q=` com `ilike` em nome/telefone/e-mail); as demais listas retornam o conjunto todo,
+  ordenado. Se um recurso passar a exigir rolagem infinita, a conversa é sobre busca, não paginação.
 - Único shape estruturado é o do `ZodValidationPipe`: `{ message: "Dados inválidos", errors }`.
 
 ## Config TS específica & bootstrap

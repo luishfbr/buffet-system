@@ -6,6 +6,7 @@ import {
   sumMoney,
   splitInstallments,
   computeBudgetTotal,
+  fitsBudgetTotal,
   formatBRL,
 } from "./money.js";
 
@@ -60,5 +61,24 @@ describe("money helpers", () => {
 
   it("formats BRL for pt-BR display", () => {
     expect(formatBRL("150.00")).toContain("150,00");
+  });
+});
+
+describe("fitsBudgetTotal (teto do numeric(12,2))", () => {
+  it("aceita um orçamento realista", () => {
+    expect(fitsBudgetTotal(computeBudgetTotal("150.00", 200))).toBe(true);
+  });
+
+  it("aceita exatamente o teto da coluna", () => {
+    expect(fitsBudgetTotal("9999999999.99")).toBe(true);
+  });
+
+  it("recusa o que estouraria a coluna", () => {
+    expect(fitsBudgetTotal("10000000000.00")).toBe(false);
+  });
+
+  it("recusa o produto de preço alto × muitos convidados", () => {
+    // pricePerPerson é numeric(10,2) e guestCount chega a 100.000.
+    expect(fitsBudgetTotal(computeBudgetTotal("99999999.99", 100000))).toBe(false);
   });
 });

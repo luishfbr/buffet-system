@@ -43,8 +43,14 @@ Estas regras se aplicam a **web e api**; os arquivos filhos não as repetem.
 - **Fonte de verdade compartilhada.** Enums e labels de domínio e schemas Zod vivem em
   `@buffet/shared` (`domain.ts`, `dtos.ts`); o schema de dados vive em `@buffet/db`. **Não
   hardcode** enums, labels ou DTOs dentro das apps — importe de `@buffet/shared`.
-- **Idioma:** toda copy voltada ao usuário e mensagens de erro em **pt-BR**. Datas renderizadas com
-  `timeZone: "UTC"` (ex.: `toLocaleDateString("pt-BR", { timeZone: "UTC" })`).
+- **Idioma:** toda copy voltada ao usuário e mensagens de erro em **pt-BR**.
+- **Datas — duas semânticas, não confunda:**
+  - **Data de evento** (`eventDate`, `dueDate`) é **data-sem-hora**, guardada à meia-noite UTC.
+    Renderize com `timeZone: "UTC"` (`toLocaleDateString("pt-BR", { timeZone: "UTC" })`) e faça
+    aritmética com `Date.UTC`/`getUTCDate`. Em `America/Sao_Paulo` (UTC-3), tratar como local
+    joga o dia para o anterior.
+  - **Carimbo de tempo real** (`lead_notes.createdAt`, `paidAt`) é um instante. Renderize em
+    **horário local** — em UTC, uma anotação feita às 18:30 apareceria como 21:30.
 - **Rastreabilidade:** ao implementar algo ligado a um requisito, marque com a tag `RF##`/`RNF##`
   em comentário (convenção já usada em todo o código).
 
@@ -72,6 +78,13 @@ está usando. O dev server passa a carregar chunks do outro build e quebra com
 |---|---|---|
 | `pnpm db:generate` / `db:migrate` / `db:studio` | pacote `@buffet/db` | Drizzle Kit |
 | `pnpm db:seed` | pacote `@buffet/api` | Seed idempotente de demonstração (precisa do runtime Nest/Better-Auth; carrega `.env` via dotenv-cli) |
+
+**Migration com backfill:** o `drizzle-kit` só gera o DDL. Se a mudança precisa mover dados, edite o
+`.sql` gerado e acrescente o `INSERT ... SELECT` **idempotente** (`WHERE NOT EXISTS`), para reaplicar
+não duplicar. Precedente: [`0003_slim_blue_marvel.sql`](packages/db/drizzle/0003_slim_blue_marvel.sql),
+que preserva as notas do RF20 ao criar `lead_notes` — inclusive gerando **UUIDv7 em SQL** (função
+temporária em `pg_temp`), porque o contrato de ids vale também dentro da migration. Prefira **manter**
+a coluna antiga como legado a dropá-la: risco sem ganho.
 
 Migrations versionadas em `packages/db/drizzle/*.sql` + `meta/_journal.json`. Postgres local via
 `docker compose up -d` (porta 5432); em produção roda no Neon.
@@ -108,6 +121,10 @@ Nunca commite o `.env`.
 | `NEXT_PUBLIC_APP_URL` | web | base do app, para montar links `/{slug}` |
 | `S3_*` | api | endpoint/bucket/credenciais do storage de imagens (MinIO local) |
 | `PUBLIC_ASSET_BASE_URL` | api | base pública dos objetos; **toda URL de imagem salva é validada contra ela** |
+| `TRUST_PROXY` | api | nº de proxies confiáveis à frente (RNF06). Vazio em dev; defina em produção atrás de LB |
+| `RESEND_API_KEY` | api | chave do Resend. **Vazia = driver console** (e-mail vai para o terminal) |
+| `MAIL_FROM` | api | remetente dos e-mails transacionais |
+| `APP_URL` | api | base do app para montar links do painel nos e-mails (o backend não lê vars `NEXT_PUBLIC_*`) |
 
 ## Qualidade & CI
 
