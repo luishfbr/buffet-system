@@ -1,20 +1,62 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import {
+  LayoutDashboard,
+  BookOpen,
+  Handshake,
+  CalendarDays,
+  Globe,
+  Wallet,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+import type { DashboardBadges } from "@buffet/shared";
+import { api } from "@/lib/api";
 import { authClient, useSession, signOut } from "@/lib/auth-client";
+import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-const NAV: { href: string; label: string; ownerOnly?: boolean }[] = [
-  { href: "/dashboard", label: "Visão geral" },
-  { href: "/dashboard/catalog", label: "Catálogo" },
-  { href: "/dashboard/leads", label: "Negociações" },
+type BadgeKey = keyof DashboardBadges;
+
+const NAV: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  ownerOnly?: boolean;
+  badge?: BadgeKey;
+}[] = [
+  { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
+  { href: "/dashboard/catalog", label: "Catálogo", icon: BookOpen },
+  // Badge de leads aguardando atendimento (RF29): sem ele, um lead que chega
+  // pela página pública fica invisível até alguém abrir a lista.
+  {
+    href: "/dashboard/leads",
+    label: "Negociações",
+    icon: Handshake,
+    badge: "newLeads",
+  },
+  // Visível para owner e member: a agenda não expõe dado financeiro.
+  { href: "/dashboard/agenda", label: "Agenda", icon: CalendarDays },
   // Owner-only: a página pública é a vitrine do buffet (RF25–RF27).
-  { href: "/dashboard/pagina", label: "Página pública", ownerOnly: true },
+  {
+    href: "/dashboard/pagina",
+    label: "Página pública",
+    icon: Globe,
+    ownerOnly: true,
+  },
   // Owner-only: members cannot see billing (RNF04).
-  { href: "/dashboard/finance", label: "Financeiro", ownerOnly: true },
-  { href: "/dashboard/members", label: "Membros" },
+  {
+    href: "/dashboard/finance",
+    label: "Financeiro",
+    icon: Wallet,
+    ownerOnly: true,
+    badge: "overduePayments",
+  },
+  { href: "/dashboard/members", label: "Membros", icon: Users },
 ];
 
 export default function DashboardLayout({
@@ -27,9 +69,8 @@ export default function DashboardLayout({
   const { data: session, isPending } = useSession();
   const { data: activeOrg, isPending: orgPending } =
     authClient.useActiveOrganization();
-  const isOwner =
-    activeOrg?.members?.find((m) => m.userId === session?.user.id)?.role ===
-    "owner";
+  const { isOwner } = useRole();
+  const [badges, setBadges] = useState<DashboardBadges | null>(null);
 
   useEffect(() => {
     if (isPending) return;
@@ -41,9 +82,26 @@ export default function DashboardLayout({
     }
   }, [isPending, session, orgPending, activeOrg, router]);
 
+  const loadBadges = useCallback(async () => {
+    if (!activeOrg) return;
+    // Endpoint próprio (duas contagens) em vez do /dashboard/summary: o shell
+    // envolve todas as páginas e recarregaria a agregação pesada a cada rota.
+    setBadges(await api.get<DashboardBadges>("/dashboard/badges"));
+  }, [activeOrg]);
+
+  // `pathname` na dependência: navegar entre páginas revalida os contadores,
+  // que é quando eles podem ter mudado (ex.: acabei de atender um lead).
+  useEffect(() => {
+    loadBadges().catch(() => setBadges(null));
+  }, [loadBadges, pathname]);
+
   if (isPending || !session || (!orgPending && !activeOrg)) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-screen items-center justify-center text-muted-foreground"
+      >
         Carregando...
       </div>
     );
@@ -75,22 +133,38 @@ export default function DashboardLayout({
       </header>
 
       <div className="flex flex-1 flex-col sm:flex-row">
-        <nav className="flex gap-1 overflow-x-auto border-b p-2 sm:w-52 sm:flex-col sm:border-b-0 sm:border-r">
+        <nav
+          aria-label="Seções do painel"
+          className="flex gap-1 overflow-x-auto border-b p-2 sm:w-52 sm:flex-col sm:border-b-0 sm:border-r"
+        >
           {NAV.filter((item) => !item.ownerOnly || isOwner).map((item) => {
             const active =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const count = item.badge ? (badges?.[item.badge] ?? 0) : 0;
+            const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`rounded-md px-3 py-2 text-sm transition-colors ${
+                aria-current={active ? "page" : undefined}
+                className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
                   active
                     ? "bg-secondary font-medium text-secondary-foreground"
                     : "text-muted-foreground hover:bg-accent"
                 }`}
               >
-                {item.label}
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="flex-1">{item.label}</span>
+                {count > 0 && (
+                  <Badge
+                    variant="default"
+                    className="shrink-0 bg-brand text-brand-foreground"
+                  >
+                    {count}
+                    <span className="sr-only"> aguardando atenção</span>
+                  </Badge>
+                )}
               </Link>
             );
           })}
