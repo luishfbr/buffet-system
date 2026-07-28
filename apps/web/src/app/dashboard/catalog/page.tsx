@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ConciergeBell,
   Package as PackageIcon,
@@ -8,7 +9,7 @@ import {
   Wine,
   type LucideIcon,
 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { formatBRL, type ItemType } from "@buffet/shared";
 import type { Item, Package } from "@/lib/types";
 import { useRole } from "@/lib/use-role";
@@ -17,6 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Tabs } from "@/components/ui/tabs";
+import { DataTable, type Column } from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonTable } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { ItemForm } from "@/components/catalog/item-form";
 import { PackageForm } from "@/components/catalog/package-form";
 
@@ -28,13 +34,36 @@ const TABS: { key: Tab; label: string; singular: string; icon: LucideIcon }[] = 
   { key: "packages", label: "Pacotes", singular: "pacote", icon: PackageIcon },
 ];
 
+/** Alvo do diálogo de exclusão: o que apagar e como se referir a ele. */
+type DeleteTarget = { path: string; label: string };
+
+function isTab(value: string | null): value is Tab {
+  return TABS.some((t) => t.key === value);
+}
+
+/** Boundary exigido pelo App Router para o `useSearchParams` do deep link. */
 export default function CatalogPage() {
+  return (
+    <Suspense
+      fallback={<SkeletonTable rows={5} cols={4} label="Carregando catálogo" />}
+    >
+      <CatalogView />
+    </Suspense>
+  );
+}
+
+function CatalogView() {
   const { isOwner } = useRole();
-  const [tab, setTab] = useState<Tab>("dish");
+  const toast = useToast();
+  // ?tab=dish|drink|service|packages — usado pelo checklist da home (RF30).
+  const tabParam = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(isTab(tabParam) ? tabParam : "dish");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
   const [modal, setModal] = useState<
     | { kind: "item"; type: ItemType; item?: Item }
     | { kind: "package"; pkg?: Package }
@@ -53,25 +82,37 @@ export default function CatalogPage() {
   }, []);
 
   useEffect(() => {
-    load().catch(() => setLoading(false));
-  }, [load]);
+    load().catch((err) => {
+      setLoading(false);
+      toast.error(errorMessage(err, "Não foi possível carregar o catálogo."));
+    });
+  }, [load, toast]);
 
-  async function toggleItem(it: Item) {
-    await api.patch(`/items/${it.id}`, { isActive: !it.isActive });
-    load();
-  }
-  async function togglePackage(p: Package) {
-    await api.patch(`/packages/${p.id}`, { isActive: !p.isActive });
-    load();
-  }
-  async function removeEntity(path: string) {
-    if (!confirm("Excluir definitivamente? Esta ação não pode ser desfeita."))
-      return;
+  async function toggle(resource: "items" | "packages", row: Item | Package) {
     try {
-      await api.del(path);
-      load();
+      await api.patch(`/${resource}/${row.id}`, { isActive: !row.isActive });
+      toast.success(row.isActive ? "Item inativado." : "Item reativado.");
+      await load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Erro ao excluir");
+      toast.error(errorMessage(err, "Não foi possível alterar o status."));
+    }
+  }
+
+  async function confirmDelete() {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      await api.del(toDelete.path);
+      setToDelete(null);
+      toast.success(`${toDelete.label} excluído.`);
+      await load();
+    } catch (err) {
+      // A API bloqueia exclusão do que está em uso e explica o porquê
+      // ("Inative-o em vez de excluir") — a mensagem dela é melhor que a nossa.
+      toast.error(errorMessage(err, "Não foi possível excluir."));
+      setToDelete(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -102,6 +143,91 @@ export default function CatalogPage() {
     setModal(
       tab === "packages" ? { kind: "package" } : { kind: "item", type: tab }
     );
+
+  const emptyState = (
+    <EmptyState
+      icon={active.icon}
+      title={
+        q
+          ? "Nenhum resultado para a busca"
+          : `Nenhum ${active.singular} cadastrado ainda`
+      }
+      description={
+        q
+          ? "Ajuste os termos e tente de novo."
+          : `Os ${active.label.toLowerCase()} que você cadastrar aqui ficam disponíveis para montar pacotes e orçamentos.`
+      }
+      action={
+        q
+          ? { label: "Limpar busca", onClick: () => setQuery("") }
+          : { label: `Novo ${active.singular}`, onClick: createActive }
+      }
+    />
+  );
+
+  const itemColumns: Column<Item>[] = [
+    { key: "name", header: "Nome", cell: (it) => it.name },
+    ...(tab === "dish"
+      ? [
+          {
+            key: "category",
+            header: "Categoria",
+            cell: (it: Item) => it.category ?? "—",
+          },
+        ]
+      : []),
+    { key: "price", header: "Preço", cell: (it) => formatBRL(it.basePrice) },
+    {
+      key: "status",
+      header: "Status",
+      cell: (it) => <StatusBadge active={it.isActive} />,
+    },
+  ];
+
+  const packageColumns: Column<Package>[] = [
+    { key: "name", header: "Nome", cell: (p) => p.name },
+    {
+      key: "price",
+      header: "Preço/convidado",
+      cell: (p) => formatBRL(p.pricePerPerson),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (p) => <StatusBadge active={p.isActive} />,
+    },
+  ];
+
+  /** Editar / Inativar / Excluir — as mesmas três ações para item e pacote. */
+  function rowActions(
+    resource: "items" | "packages",
+    row: Item | Package,
+    onEdit: () => void
+  ) {
+    return (
+      <>
+        <Button variant="ghost" size="sm" onClick={onEdit}>
+          Editar
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => toggle(resource, row)}>
+          {row.isActive ? "Inativar" : "Ativar"}
+        </Button>
+        {/* Exclusão física é owner-only (RF04/RF08/RF12/RF16). */}
+        {isOwner && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive"
+            onClick={() =>
+              setToDelete({ path: `/${resource}/${row.id}`, label: row.name })
+            }
+          >
+            Excluir
+          </Button>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -139,58 +265,29 @@ export default function CatalogPage() {
       />
 
       {loading ? (
-        <p className="text-muted-foreground">Carregando...</p>
+        <SkeletonTable rows={5} cols={4} label="Carregando catálogo" />
       ) : tab === "packages" ? (
-        <CatalogTable
+        <DataTable
           rows={visiblePackages}
-          columns={["Nome", "Preço/convidado", "Status"]}
-          render={(p) => [
-            p.name,
-            formatBRL(p.pricePerPerson),
-            <StatusBadge key="s" active={p.isActive} />,
-          ]}
-          onEdit={(p) => setModal({ kind: "package", pkg: p })}
-          onToggle={togglePackage}
-          onDelete={isOwner ? (p) => removeEntity(`/packages/${p.id}`) : undefined}
-          empty={
-            <EmptyState
-              searching={q.length > 0}
-              singular={active.singular}
-              onCreate={createActive}
-            />
+          columns={packageColumns}
+          rowKey={(p) => p.id}
+          caption="Pacotes do catálogo"
+          empty={emptyState}
+          actions={(p) =>
+            rowActions("packages", p, () => setModal({ kind: "package", pkg: p }))
           }
         />
       ) : (
-        <CatalogTable
+        <DataTable
           rows={visibleItems}
-          columns={
-            tab === "dish"
-              ? ["Nome", "Categoria", "Preço", "Status"]
-              : ["Nome", "Preço", "Status"]
-          }
-          render={(it) =>
-            tab === "dish"
-              ? [
-                  it.name,
-                  it.category ?? "—",
-                  formatBRL(it.basePrice),
-                  <StatusBadge key="s" active={it.isActive} />,
-                ]
-              : [
-                  it.name,
-                  formatBRL(it.basePrice),
-                  <StatusBadge key="s" active={it.isActive} />,
-                ]
-          }
-          onEdit={(it) => setModal({ kind: "item", type: it.type, item: it })}
-          onToggle={toggleItem}
-          onDelete={isOwner ? (it) => removeEntity(`/items/${it.id}`) : undefined}
-          empty={
-            <EmptyState
-              searching={q.length > 0}
-              singular={active.singular}
-              onCreate={createActive}
-            />
+          columns={itemColumns}
+          rowKey={(it) => it.id}
+          caption={`${active.label} do catálogo`}
+          empty={emptyState}
+          actions={(it) =>
+            rowActions("items", it, () =>
+              setModal({ kind: "item", type: it.type, item: it })
+            )
           }
         />
       )}
@@ -214,6 +311,7 @@ export default function CatalogPage() {
             item={modal.item}
             onSaved={() => {
               setModal(null);
+              toast.success("Item salvo.");
               load();
             }}
             onCancel={() => setModal(null)}
@@ -224,12 +322,23 @@ export default function CatalogPage() {
             pkg={modal.pkg}
             onSaved={() => {
               setModal(null);
+              toast.success("Pacote salvo.");
               load();
             }}
             onCancel={() => setModal(null)}
           />
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={toDelete !== null}
+        title={`Excluir ${toDelete?.label ?? ""}?`}
+        description="Esta ação não pode ser desfeita. Se o item já foi usado em um orçamento, prefira inativá-lo — assim o histórico continua íntegro."
+        confirmLabel="Excluir definitivamente"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setToDelete(null)}
+      />
     </div>
   );
 }
@@ -239,107 +348,5 @@ function StatusBadge({ active }: { active: boolean }) {
     <Badge variant={active ? "secondary" : "muted"}>
       {active ? "Ativo" : "Inativo"}
     </Badge>
-  );
-}
-
-function EmptyState({
-  searching,
-  singular,
-  onCreate,
-}: {
-  searching: boolean;
-  singular: string;
-  onCreate: () => void;
-}) {
-  if (searching)
-    return (
-      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-        Nenhum resultado para a busca. Ajuste os termos e tente de novo.
-      </div>
-    );
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-8 text-center">
-      <p className="text-sm text-muted-foreground">
-        Nenhum {singular} cadastrado ainda.
-      </p>
-      <Button size="sm" onClick={onCreate}>
-        Novo {singular}
-      </Button>
-    </div>
-  );
-}
-
-function CatalogTable<T extends { id: string; isActive: boolean }>({
-  rows,
-  columns,
-  render,
-  onEdit,
-  onToggle,
-  onDelete,
-  empty,
-}: {
-  rows: T[];
-  columns: string[];
-  render: (row: T) => React.ReactNode[];
-  onEdit: (row: T) => void;
-  onToggle: (row: T) => void;
-  onDelete?: (row: T) => void;
-  empty: React.ReactNode;
-}) {
-  if (rows.length === 0) return <>{empty}</>;
-
-  return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full text-sm tabular-nums">
-        <thead className="sticky top-0 border-b bg-muted/40 text-left text-muted-foreground">
-          <tr>
-            {columns.map((c) => (
-              <th key={c} className="px-4 py-2 font-medium">
-                {c}
-              </th>
-            ))}
-            <th className="px-4 py-2 text-right font-medium">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-b transition-colors last:border-b-0 hover:bg-accent/50"
-            >
-              {render(row).map((cell, i) => (
-                <td key={i} className="px-4 py-2">
-                  {cell}
-                </td>
-              ))}
-              <td className="px-4 py-2">
-                <div className="flex justify-end gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => onEdit(row)}>
-                    Editar
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onToggle(row)}
-                  >
-                    {row.isActive ? "Inativar" : "Ativar"}
-                  </Button>
-                  {onDelete && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() => onDelete(row)}
-                    >
-                      Excluir
-                    </Button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

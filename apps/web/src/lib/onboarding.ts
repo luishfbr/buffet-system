@@ -9,6 +9,31 @@ import type { Item, Package } from "./types";
  */
 
 const onboardedKey = (orgId: string) => `buffet:onboarded:${orgId}`;
+const checklistDismissedKey = (orgId: string) =>
+  `buffet:checklist-dismissed:${orgId}`;
+
+/**
+ * O checklist de configuração da home (RF30) pode ser dispensado — quem não
+ * quer preencher tudo não deve carregar o lembrete para sempre. Mesmo idioma
+ * de chave do `buffet:onboarded:{orgId}`.
+ */
+export function isChecklistDismissed(orgId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(checklistDismissedKey(orgId)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissChecklist(orgId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(checklistDismissedKey(orgId), new Date().toISOString());
+  } catch {
+    // localStorage indisponível — o checklist reaparece, sem quebrar nada.
+  }
+}
 
 export function isOnboardedLocally(orgId: string): boolean {
   if (typeof window === "undefined") return false;

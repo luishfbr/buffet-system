@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import {
   schema,
   type Database,
@@ -15,6 +15,7 @@ import {
 import {
   sumMoney,
   type CreateScheduleInput,
+  type DashboardFinance,
   type PayInstallmentInput,
 } from "@buffet/shared";
 import { DB } from "../database/database.module.js";
@@ -35,6 +36,9 @@ export interface FinanceSummary {
   received: string;
   pending: UpcomingPayment[];
 }
+
+/** Quantas parcelas a vencer o painel mostra (RF29). */
+const DASHBOARD_NEXT_DUE_LIMIT = 5;
 
 /**
  * Financial module (RF23/RF24). `financial_payments` has no organizationId, so
@@ -145,9 +149,69 @@ export class FinanceService {
   /**
    * Owner-only billing totals (RNF04): amount receivable, amount already
    * received, and the pending installments across the org. Isolated by join.
+   *
+   * Os totais vêm de `totals()` — o mesmo agregado que alimenta o painel
+   * (RF29). Se cada endpoint somasse por conta própria, um dia divergiriam.
    */
   async summary(orgId: string): Promise<FinanceSummary> {
-    const rows = await this.db
+    const [{ receivable, received }, pending] = await Promise.all([
+      this.totals(orgId),
+      this.pendingPayments(orgId),
+    ]);
+    return { receivable, received, pending };
+  }
+
+  /**
+   * Agregado financeiro da organização, somado **no Postgres** (RF29/RNF04).
+   *
+   * `sum()` sobre zero linhas devolve `NULL` e sem cast a escala não é
+   * garantida: daí o `coalesce(..., 0)::numeric(12,2)`, senão o valor não casa
+   * com o `moneySchema` nem com o `formatBRL` (dinheiro é string decimal).
+   */
+  async totals(orgId: string): Promise<DashboardFinance> {
+    const [row] = await this.db
+      .select({
+        receivable: sql<string>`coalesce(sum(${schema.financialPayments.amount})
+          filter (where ${schema.financialPayments.status} <> 'pago'), 0)::numeric(12,2)`,
+        received: sql<string>`coalesce(sum(${schema.financialPayments.amount})
+          filter (where ${schema.financialPayments.status} = 'pago'), 0)::numeric(12,2)`,
+        overdueCount: sql<number>`count(*) filter (
+          where ${schema.financialPayments.status} <> 'pago'
+            and ${schema.financialPayments.dueDate} < now()
+        )::int`,
+      })
+      .from(schema.financialPayments)
+      // financial_payments não tem organizationId — isola pelo lead pai (RNF05).
+      .innerJoin(
+        schema.leadsBudgets,
+        eq(schema.financialPayments.budgetId, schema.leadsBudgets.id)
+      )
+      .where(eq(schema.leadsBudgets.organizationId, orgId));
+
+    const nextDue = await this.pendingPayments(orgId, DASHBOARD_NEXT_DUE_LIMIT);
+    const now = Date.now();
+
+    return {
+      receivable: row?.receivable ?? "0.00",
+      received: row?.received ?? "0.00",
+      overdueCount: row?.overdueCount ?? 0,
+      nextDue: nextDue.map((p) => ({
+        id: p.id,
+        budgetId: p.budgetId,
+        customerName: p.customerName,
+        dueDate: p.dueDate.toISOString(),
+        amount: p.amount,
+        isOverdue: p.dueDate.getTime() < now,
+      })),
+    };
+  }
+
+  /** Parcelas ainda não pagas, da mais próxima de vencer para a mais distante. */
+  private async pendingPayments(
+    orgId: string,
+    limit?: number
+  ): Promise<UpcomingPayment[]> {
+    const query = this.db
       .select({
         id: schema.financialPayments.id,
         budgetId: schema.financialPayments.budgetId,
@@ -161,18 +225,15 @@ export class FinanceService {
         schema.leadsBudgets,
         eq(schema.financialPayments.budgetId, schema.leadsBudgets.id)
       )
-      .where(eq(schema.leadsBudgets.organizationId, orgId))
+      .where(
+        and(
+          eq(schema.leadsBudgets.organizationId, orgId),
+          ne(schema.financialPayments.status, "pago")
+        )
+      )
       .orderBy(asc(schema.financialPayments.dueDate));
 
-    const receivable = sumMoney(
-      rows.filter((r) => r.status !== "pago").map((r) => r.amount)
-    );
-    const received = sumMoney(
-      rows.filter((r) => r.status === "pago").map((r) => r.amount)
-    );
-    const pending = rows.filter((r) => r.status !== "pago");
-
-    return { receivable, received, pending };
+    return limit ? query.limit(limit) : query;
   }
 
   private async getLeadOwnedOrThrow(
