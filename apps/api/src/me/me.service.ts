@@ -47,6 +47,11 @@ export class MeService {
     ]);
 
     return {
+      user: {
+        id: auth.user.id,
+        name: auth.user.name,
+        email: auth.user.email,
+      },
       // Da associação revalidada pelo AuthGuard, não de
       // `session.activeOrganizationId` — mesma regra do `@ActiveOrg()`: um
       // funcionário demitido continua com o id antigo na sessão.

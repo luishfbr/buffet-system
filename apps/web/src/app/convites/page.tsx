@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import { MEMBER_ROLE_LABELS, type WorkspaceInvitation } from "@buffet/shared";
-import { authClient, useSession } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { errorMessage } from "@/lib/api";
-import { switchOrganization, useWorkspace } from "@/lib/workspace";
+import {
+  isUnauthorized,
+  switchOrganization,
+  useWorkspace,
+} from "@/lib/workspace";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -25,14 +29,14 @@ import { useToast } from "@/components/ui/toast";
 export default function InvitationsPage() {
   const router = useRouter();
   const toast = useToast();
-  const { data: session, isPending: sessionPending } = useSession();
-  const { workspace, loading, reload } = useWorkspace();
+  const { workspace, loading, error, reload } = useWorkspace();
   const [busy, setBusy] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<WorkspaceInvitation | null>(null);
 
+  // Só o 401 do servidor manda para o login — ver `lib/workspace.ts`.
   useEffect(() => {
-    if (!sessionPending && !session) router.replace("/login");
-  }, [sessionPending, session, router]);
+    if (isUnauthorized(error)) router.replace("/login");
+  }, [error, router]);
 
   async function handleAccept(invitation: WorkspaceInvitation) {
     setBusy(invitation.id);
@@ -86,7 +90,7 @@ export default function InvitationsPage() {
       </div>
 
       <div className="mt-6 flex flex-col gap-4">
-        {sessionPending || loading ? (
+        {loading ? (
           <p
             role="status"
             aria-live="polite"

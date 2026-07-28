@@ -3,8 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useSession } from "@/lib/auth-client";
-import { useWorkspace } from "@/lib/workspace";
+import { isUnauthorized, useWorkspace } from "@/lib/workspace";
 import { api } from "@/lib/api";
 import type { Item, Package } from "@/lib/types";
 import {
@@ -43,8 +42,11 @@ export default function OnboardingPage() {
 
 function OnboardingView() {
   const router = useRouter();
-  const { data: session, isPending: sessionPending } = useSession();
-  const { workspace, loading: workspaceLoading } = useWorkspace();
+  const {
+    workspace,
+    loading: workspaceLoading,
+    error: workspaceError,
+  } = useWorkspace();
   // `?novo=1` vem do seletor de organização: quem já tem um buffet e quer
   // montar outro. Sem isso, o gate abaixo devolveria essa pessoa ao painel.
   const wantsNewOrg = useSearchParams().get("novo") === "1";
@@ -61,10 +63,11 @@ function OnboardingView() {
   const [ready, setReady] = useState(false);
   const initRef = useRef(false);
 
-  // Guarda de sessão (espelha o dashboard): sem sessão → login.
+  // Guarda de sessão (espelha o dashboard): só o 401 do servidor manda para o
+  // login — ver o comentário em `lib/workspace.ts` sobre o átomo obsoleto.
   useEffect(() => {
-    if (!sessionPending && !session) router.replace("/login");
-  }, [sessionPending, session, router]);
+    if (isUnauthorized(workspaceError)) router.replace("/login");
+  }, [workspaceError, router]);
 
   // Bootstrap único: decide o passo inicial e retoma o catálogo já existente.
   const bootstrap = useCallback(async () => {
@@ -105,12 +108,10 @@ function OnboardingView() {
   }, [workspace, wantsNewOrg, router]);
 
   useEffect(() => {
-    if (sessionPending || workspaceLoading || !session || initRef.current) {
-      return;
-    }
+    if (workspaceLoading || !workspace || initRef.current) return;
     initRef.current = true;
     void bootstrap();
-  }, [sessionPending, workspaceLoading, session, bootstrap]);
+  }, [workspaceLoading, workspace, bootstrap]);
 
   // Mantém o preview vivo durante a criação da org (passo 1).
   const previewName = org?.name || draft.name;

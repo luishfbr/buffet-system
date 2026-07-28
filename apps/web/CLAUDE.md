@@ -86,18 +86,26 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
 - **Papel do usuário:** derive **sempre via `useRole()`** ([`src/lib/use-role.ts`](src/lib/use-role.ts))
   → `{ role, isOwner }`. Algumas páginas ainda reinlinam essa derivação (`activeOrg.members.find(...)`)
   — ao mexer nelas, **padronize para o hook**.
-- **Proteção de rota é client-side** (não há middleware): [`dashboard/layout.tsx`](src/app/dashboard/layout.tsx)
-  redireciona para `/login` se não houver sessão. Itens de nav owner-only são filtrados por um flag
-  `ownerOnly`; a página Finance **também** bloqueia `member` no próprio componente (RNF04 em profundidade).
-- **⚠️ Não decida rota com `authClient.useActiveOrganization()`.** Aquele hook é um átomo nanostores
-  **singleton de módulo** que (better-auth 1.6.23) busca **uma vez por carregamento de página** e não
-  é redisparado por `/sign-in/email` — sair e entrar sem F5 o deixava travado em `null`, e o painel
-  mandava para o onboarding quem já tinha buffet. Duas regras:
+- **Proteção de rota é client-side** (não há middleware) e mora em
+  [`dashboard/layout.tsx`](src/app/dashboard/layout.tsx). Itens de nav owner-only são filtrados por
+  um flag `ownerOnly`; a página Finance **também** bloqueia `member` no próprio componente (RNF04 em
+  profundidade).
+- **⚠️ Nunca decida rota com os hooks do client do Better-Auth** (`useSession()`,
+  `useActiveOrganization()`). São átomos nanostores **singletons de módulo** que devolvem o valor
+  atual de forma **síncrona no primeiro render** e só rebuscam num `setTimeout(0)` depois de montar.
+  Um `signOut` deixa o átomo em `{ data: null, isPending: false }` e nada reseta isso — o portão lia
+  "não logado"/"sem organização" antes de qualquer requisição sair. Foi a causa de dois bugs: o
+  segundo login voltando para `/login` e o funcionário caindo no onboarding. Três regras:
   - **Rota** sai de [`lib/workspace.ts`](src/lib/workspace.ts): `useWorkspace()` (fetch comum de
     `GET /me/workspace`) + `resolveEntryRoute(ws)` → `/dashboard` | `/convites` | `/onboarding`.
     O `dashboard/layout.tsx` é o **portão único**; login e signup só empurram para `/dashboard`.
+  - **"Não está logado" é só o 401 do servidor** — `isUnauthorized(error)`. Estado de cliente vazio
+    não desloga ninguém, e falha de rede (que rejeita como `TypeError`) muito menos: ela mostra uma
+    tela de "Tentar de novo", não um redirect.
   - **Dados da org** saem de [`lib/use-active-org.ts`](src/lib/use-active-org.ts) — wrapper que
-    auto-cura o átomo com um `refetch()` único quando a sessão tem org e ele não tem.
+    auto-cura o átomo com um `refetch()` único quando a sessão tem org e ele não tem. Quem já tem o
+    `workspace` em mãos (é o caso do shell) usa ele direto, inclusive para o papel.
+  - `useSession()` continua válido **só para exibição** (nome, e-mail), nunca para decidir fluxo.
 - **Troca de organização** (`components/dashboard/org-switcher.tsx`, raiz do breadcrumb no header):
   `switchOrganization()` chama a API e faz `window.location.assign("/dashboard")` — **reload completo
   de propósito**. Sem store global, com `load()` só na montagem e preferências chaveadas por `orgId`,

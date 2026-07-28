@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Workspace, WorkspaceInvitation } from "@buffet/shared";
-import { resolveEntryRoute, safeNextPath } from "./workspace";
+import { ApiError } from "./api";
+import { isUnauthorized, resolveEntryRoute, safeNextPath } from "./workspace";
 
 const invitation: WorkspaceInvitation = {
   id: "inv-1",
@@ -12,6 +13,7 @@ const invitation: WorkspaceInvitation = {
 };
 
 const workspace = (over: Partial<Workspace> = {}): Workspace => ({
+  user: { id: "user-1", name: "Luis", email: "luis@teste.com" },
   activeOrganizationId: null,
   organizations: [],
   invitations: [],
@@ -43,6 +45,31 @@ describe("resolveEntryRoute", () => {
         workspace({ activeOrganizationId: "org-1", invitations: [invitation] })
       )
     ).toBe("/dashboard");
+  });
+});
+
+describe("isUnauthorized", () => {
+  it("reconhece o 401 do servidor", () => {
+    expect(isUnauthorized(new ApiError(401, "Não autenticado"))).toBe(true);
+  });
+
+  // O bug que isto existe para impedir: depois de um signOut, o átomo do
+  // Better-Auth devolve `null` sem erro nenhum. Tratar "vazio" como "deslogado"
+  // fazia o segundo login voltar direto para /login.
+  it("não confunde ausência de dado com sessão inválida", () => {
+    expect(isUnauthorized(null)).toBe(false);
+    expect(isUnauthorized(undefined)).toBe(false);
+  });
+
+  // Falha de rede rejeita como TypeError e o servidor nunca respondeu — mandar
+  // para o login aqui deslogaria alguém só por causa de um wi-fi ruim.
+  it("não trata falha de rede como sessão inválida", () => {
+    expect(isUnauthorized(new TypeError("Failed to fetch"))).toBe(false);
+  });
+
+  it("não trata outros erros da API como sessão inválida", () => {
+    expect(isUnauthorized(new ApiError(403, "Sem permissão"))).toBe(false);
+    expect(isUnauthorized(new ApiError(500, "Erro interno"))).toBe(false);
   });
 });
 

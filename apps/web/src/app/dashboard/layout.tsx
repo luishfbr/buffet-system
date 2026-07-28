@@ -16,10 +16,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DashboardBadges } from "@buffet/shared";
-import { api } from "@/lib/api";
-import { useSession, signOut } from "@/lib/auth-client";
-import { useRole } from "@/lib/use-role";
-import { resolveEntryRoute, useWorkspace } from "@/lib/workspace";
+import { api, errorMessage } from "@/lib/api";
+import { signOut } from "@/lib/auth-client";
+import {
+  isUnauthorized,
+  resolveEntryRoute,
+  useWorkspace,
+} from "@/lib/workspace";
 import { isSidebarCollapsed, setSidebarCollapsed } from "@/lib/sidebar";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -81,9 +84,12 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { data: session, isPending } = useSession();
-  const { workspace, loading: workspaceLoading } = useWorkspace();
-  const { isOwner } = useRole();
+  const {
+    workspace,
+    loading: workspaceLoading,
+    error: workspaceError,
+    reload: reloadWorkspace,
+  } = useWorkspace();
   const [badges, setBadges] = useState<DashboardBadges | null>(null);
   // Sidebar recolhida (só ícones). `hydrated` existe só para não animar a
   // largura no primeiro paint: a preferência mora no localStorage e só pode ser
@@ -93,6 +99,11 @@ export default function DashboardLayout({
   const mainRef = useRef<HTMLElement>(null);
 
   const orgId = workspace?.activeOrganizationId ?? undefined;
+  // Papel pela mesma fonte do resto do shell, não pelo `useRole()`: aquele hook
+  // deriva do átomo de organização, que na segunda entrada chega vazio e faria
+  // os itens owner-only piscarem ausentes antes de aparecer (RNF04).
+  const isOwner =
+    workspace?.organizations.find((org) => org.id === orgId)?.role === "owner";
   useEffect(() => {
     if (!orgId) return;
     setCollapsed(isSidebarCollapsed(orgId));
@@ -105,21 +116,25 @@ export default function DashboardLayout({
     if (orgId) setSidebarCollapsed(orgId, next);
   };
 
-  // Portão único de entrada do app. A decisão sai do `GET /me/workspace`
-  // (verdade do servidor) e não do cache do client do Better-Auth: aquele átomo
-  // não é redisparado no login e mandava quem já tinha buffet para o onboarding.
+  // Portão único de entrada do app, decidido **só** pelo `GET /me/workspace`.
+  //
+  // ⚠️ Não reintroduza `useSession()` aqui. O átomo do client do Better-Auth
+  // guarda `{ data: null, isPending: false }` depois de um signOut e devolve
+  // isso no primeiro render do painel — antes do refetch, que é agendado num
+  // `setTimeout(0)`. Ler dali fazia o segundo login voltar direto para /login.
+  // Quem diz que não há sessão é o 401 do servidor, e mais ninguém.
   useEffect(() => {
-    if (isPending) return;
-    if (!session) {
+    if (workspaceLoading) return;
+    if (isUnauthorized(workspaceError)) {
       router.replace("/login");
       return;
     }
-    if (workspaceLoading || !workspace) return;
+    if (!workspace) return; // falha de rede — a tela abaixo oferece recarregar
     if (!workspace.activeOrganizationId) {
       // Sem vínculo vivo: aceitar um convite pendente ou criar o primeiro buffet.
       router.replace(resolveEntryRoute(workspace));
     }
-  }, [isPending, session, workspaceLoading, workspace, router]);
+  }, [workspaceLoading, workspaceError, workspace, router]);
 
   const loadBadges = useCallback(async () => {
     if (!orgId) return;
@@ -145,12 +160,22 @@ export default function DashboardLayout({
     isCurrentSection(pathname, item.href)
   )?.label;
 
-  if (
-    isPending ||
-    !session ||
-    workspaceLoading ||
-    !workspace?.activeOrganizationId
-  ) {
+  // Falha de rede (não 401): sem isto a tela ficaria em "Carregando..." para
+  // sempre, porque não há redirect nenhum em voo para tirar o usuário daqui.
+  if (!workspaceLoading && !workspace && !isUnauthorized(workspaceError)) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-muted-foreground">
+          {errorMessage(workspaceError, "Não foi possível carregar seu painel.")}
+        </p>
+        <Button variant="outline" onClick={() => void reloadWorkspace()}>
+          Tentar de novo
+        </Button>
+      </div>
+    );
+  }
+
+  if (workspaceLoading || !workspace?.activeOrganizationId) {
     return (
       <div
         role="status"
@@ -186,7 +211,7 @@ export default function DashboardLayout({
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">
-            {session.user.email}
+            {workspace.user.email}
           </span>
           <Button
             variant="outline"

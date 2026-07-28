@@ -563,6 +563,11 @@ export interface WorkspaceInvitation {
  * de confiar no cache do client do Better-Auth (RNF05).
  */
 export interface Workspace {
+  /**
+   * Quem está logado. Vem daqui, e não de `useSession()`, para o painel ter uma
+   * fonte só — o átomo do client do Better-Auth fica obsoleto após um signOut.
+   */
+  user: { id: string; name: string; email: string };
   /** `null` quando o usuário ainda não tem nenhum vínculo vivo. */
   activeOrganizationId: string | null;
   organizations: WorkspaceOrganization[];

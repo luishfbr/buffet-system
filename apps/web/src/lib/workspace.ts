@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Workspace } from "@buffet/shared";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 /** Destinos possíveis de entrada no app. */
 export type EntryRoute = "/dashboard" | "/convites" | "/onboarding";
@@ -34,29 +34,49 @@ export function safeNextPath(next: string | null | undefined): string | null {
 
 /**
  * Carrega o workspace do usuário (`GET /me/workspace`) — a **verdade do
- * servidor** sobre buffets e convites.
+ * servidor** sobre quem está logado, seus buffets e seus convites.
  *
- * Deliberadamente um `fetch` comum, e não `authClient.useActiveOrganization()`:
- * aquele hook é um átomo nanostores singleton de módulo que, no better-auth
- * 1.6.23, busca uma única vez por carregamento de página e não é redisparado
- * pelo `/sign-in/email`. Era o que fazia um funcionário sair e entrar de novo e
- * cair no onboarding de "crie seu buffet" (RNF05).
+ * Deliberadamente um `fetch` comum, e não os hooks do client do Better-Auth.
+ * `useSession()` e `useActiveOrganization()` são átomos nanostores **singletons
+ * de módulo** que (better-auth 1.6.23) devolvem o valor atual de forma síncrona
+ * no primeiro render e só buscam de novo num `setTimeout(0)` depois de montar.
+ * Um `signOut` deixa o átomo em `{ data: null, isPending: false }` e nada o
+ * reseta — então o render seguinte ao **segundo** login lia "não logado" antes
+ * de qualquer requisição sair. Aqui não há valor herdado: ou a resposta chegou,
+ * ou `loading` ainda é `true`.
  */
 export function useWorkspace() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setWorkspace(await api.get<Workspace>("/me/workspace"));
-    setLoading(false);
+    setError(null);
+    try {
+      setWorkspace(await api.get<Workspace>("/me/workspace"));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch(() => setLoading(false));
+    void load();
   }, [load]);
 
-  return { workspace, loading, reload: load };
+  return { workspace, loading, error, reload: load };
+}
+
+/**
+ * O servidor recusou a sessão. **É o único sinal confiável de "não logado"** —
+ * um cookie ausente ou expirado responde 401 no `/me/workspace`, enquanto o
+ * átomo do client pode dizer `null` só por estar desatualizado. Nunca mande
+ * ninguém ao login por causa de um estado de cliente vazio.
+ */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }
 
 /**
