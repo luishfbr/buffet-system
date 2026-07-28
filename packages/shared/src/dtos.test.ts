@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  agendaRangeSchema,
   applyPricePolicy,
   createItemSchema,
   createPackageSchema,
@@ -209,5 +210,48 @@ describe("applyPricePolicy (RF27)", () => {
     expect(hidden?.includedItems).toEqual(["Entrada"]);
     // Não muta a lista de origem — a prévia reaplica a política a cada tecla.
     expect(packages[0]?.pricePerPerson).toBe("120.00");
+  });
+});
+
+describe("agendaRangeSchema (RF31)", () => {
+  const base = { from: "2026-09-01", to: "2026-09-30" };
+
+  it("aceita um intervalo válido", () => {
+    expect(agendaRangeSchema.safeParse(base).success).toBe(true);
+  });
+
+  it("recusa data fora do formato YYYY-MM-DD", () => {
+    const result = agendaRangeSchema.safeParse({ ...base, from: "01/09/2026" });
+    expect(result.success).toBe(false);
+  });
+
+  it("recusa intervalo invertido", () => {
+    const result = agendaRangeSchema.safeParse({
+      from: "2026-09-30",
+      to: "2026-09-01",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("aceita o mesmo dia nas duas pontas", () => {
+    const result = agendaRangeSchema.safeParse({
+      from: "2026-09-10",
+      to: "2026-09-10",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("recusa janela maior que 3 meses", () => {
+    const result = agendaRangeSchema.safeParse({
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("aceita includeLost como texto (query string não tem boolean)", () => {
+    const result = agendaRangeSchema.safeParse({ ...base, includeLost: "true" });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.includeLost).toBe("true");
   });
 });

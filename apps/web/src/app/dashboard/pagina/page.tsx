@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ExternalLink } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { AlertTriangle, Check, ExternalLink } from "lucide-react";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import { deleteImage } from "@/lib/image";
 import { authClient } from "@/lib/auth-client";
 import { useRole } from "@/lib/use-role";
@@ -33,6 +34,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs } from "@/components/ui/tabs";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton, SkeletonCards } from "@/components/ui/skeleton";
 import { TemplatePicker } from "@/components/public/template-picker";
 import { PagePreview } from "@/components/public/page-preview";
 import { PackageShowcase } from "@/components/catalog/package-showcase";
@@ -56,7 +59,7 @@ export default function PublicPageEditor() {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [pane, setPane] = useState<(typeof PANES)[number]["key"]>("editar");
 
@@ -143,7 +146,7 @@ export default function PublicPageEditor() {
       setSaved(next);
       setJustSaved(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -160,19 +163,22 @@ export default function PublicPageEditor() {
 
   if (loadFailed) {
     return (
-      <div className="flex flex-col items-start gap-3">
-        <p className="text-sm text-muted-foreground">
-          Não foi possível carregar a página pública.
-        </p>
-        <Button variant="outline" onClick={() => void load()}>
-          Tentar de novo
-        </Button>
-      </div>
+      <EmptyState
+        icon={AlertTriangle}
+        title="Não foi possível carregar a página pública"
+        description="Pode ter sido uma falha de conexão. Tente de novo — nada do que você já salvou foi perdido."
+        action={{ label: "Tentar de novo", onClick: () => void load() }}
+      />
     );
   }
 
   if (loading || !settings) {
-    return <p className="text-sm text-muted-foreground">Carregando...</p>;
+    return (
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+        <SkeletonCards count={3} className="sm:grid-cols-1" label="Carregando editor" />
+        <Skeleton className="hidden h-150 w-full lg:block" />
+      </div>
+    );
   }
 
   const slug = activeOrg?.slug;
@@ -450,11 +456,7 @@ export default function PublicPageEditor() {
             </CardContent>
           </Card>
 
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
+          <FormError error={error} />
 
           <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t bg-background/95 py-3 backdrop-blur">
             {justSaved && (

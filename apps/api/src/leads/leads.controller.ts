@@ -1,18 +1,27 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
+  Post,
   Query,
 } from "@nestjs/common";
 import {
+  agendaRangeSchema,
+  createLeadNoteSchema,
   updateLeadSchema,
   LEAD_STATUSES,
+  type AgendaRangeInput,
+  type CreateLeadNoteInput,
   type UpdateLeadInput,
   type LeadStatus,
 } from "@buffet/shared";
-import { ActiveOrg } from "../auth/current-user.decorator.js";
+import { ActiveOrg, CurrentUser } from "../auth/current-user.decorator.js";
+import { Roles } from "../auth/auth.constants.js";
+import type { AuthContext } from "../auth/auth.constants.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { LeadsService } from "./leads.service.js";
 
@@ -24,13 +33,34 @@ import { LeadsService } from "./leads.service.js";
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
 
-  // RF19: dynamic listing with an optional status filter.
+  // RF19: dynamic listing with an optional status filter and server-side search.
   @Get()
-  list(@ActiveOrg() orgId: string, @Query("status") status?: string) {
+  list(
+    @ActiveOrg() orgId: string,
+    @Query("status") status?: string,
+    @Query("q") q?: string
+  ) {
     const parsed = LEAD_STATUSES.includes(status as LeadStatus)
       ? (status as LeadStatus)
       : undefined;
-    return this.leads.list(orgId, parsed);
+    return this.leads.list(orgId, parsed, q);
+  }
+
+  /**
+   * RF31: eventos de um intervalo, para a agenda mensal.
+   *
+   * ⚠️ Declarada **antes** de `@Get(":id")` — senão "agenda" seria capturada
+   * como um id. Mesma pegadinha do `@Patch("order")` em packages.controller.
+   *
+   * Primeiro uso do `ZodValidationPipe` fora de `@Body`: ele ignora o
+   * `metadata`, então funciona igual em `@Query`.
+   */
+  @Get("agenda")
+  agenda(
+    @ActiveOrg() orgId: string,
+    @Query(new ZodValidationPipe(agendaRangeSchema)) query: AgendaRangeInput
+  ) {
+    return this.leads.agenda(orgId, query);
   }
 
   @Get(":id")
@@ -42,6 +72,37 @@ export class LeadsController {
   @Get(":id/proposal")
   proposal(@ActiveOrg() orgId: string, @Param("id") id: string) {
     return this.leads.proposalText(orgId, id);
+  }
+
+  // RF35: histórico de interações, do mais recente ao mais antigo.
+  @Get(":id/notes")
+  listNotes(@ActiveOrg() orgId: string, @Param("id") id: string) {
+    return this.leads.listNotes(orgId, id);
+  }
+
+  @Post(":id/notes")
+  addNote(
+    @ActiveOrg() orgId: string,
+    @CurrentUser() auth: AuthContext,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(createLeadNoteSchema)) body: CreateLeadNoteInput
+  ) {
+    return this.leads.addNote(orgId, id, body, {
+      id: auth.user.id,
+      name: auth.user.name,
+    });
+  }
+
+  // Delete físico = owner-only, como no resto do sistema.
+  @Roles("owner")
+  @Delete(":id/notes/:noteId")
+  @HttpCode(204)
+  async removeNote(
+    @ActiveOrg() orgId: string,
+    @Param("id") id: string,
+    @Param("noteId") noteId: string
+  ): Promise<void> {
+    await this.leads.removeNote(orgId, id, noteId);
   }
 
   // RF19/RF20: status transitions, notes/history and customer/event edits.

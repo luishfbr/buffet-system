@@ -270,6 +270,37 @@ export const financialPayments = pgTable(
   (table) => [index("payments_budget_idx").on(table.budgetId)]
 );
 
+/**
+ * RF35: histórico de interações com carimbo de tempo e autoria — evolução do
+ * RF20, que guardava tudo numa única coluna `notes` mutável.
+ *
+ * A coluna de texto continuava sendo um bug de dados, não só uma leitura fraca
+ * do requisito: o funil é compartilhado entre todos os members, e dois deles
+ * com a mesma negociação aberta faziam last-writer-wins — o segundo save
+ * apagava a anotação do primeiro, sem aviso.
+ *
+ * Sem `organizationId`: o isolamento vem do join com `leads_budgets`, como em
+ * `financial_payments` e `package_images` (RNF05).
+ */
+export const leadNotes = pgTable(
+  "lead_notes",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    budgetId: text("budgetId")
+      .notNull()
+      .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+    // Nulo quando o autor foi removido, ou nas notas importadas do RF20.
+    authorUserId: text("authorUserId").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    // Snapshot do nome: o histórico não pode perder a autoria se o usuário sair.
+    authorName: text("authorName").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [index("lead_notes_budget_idx").on(table.budgetId, table.createdAt)]
+);
+
 // ==========================================
 // 4. RELATIONS (Drizzle relational queries)
 // ==========================================
@@ -353,8 +384,20 @@ export const leadsBudgetsRelations = relations(
       references: [packages.id],
     }),
     payments: many(financialPayments),
+    notes: many(leadNotes),
   })
 );
+
+export const leadNotesRelations = relations(leadNotes, ({ one }) => ({
+  budget: one(leadsBudgets, {
+    fields: [leadNotes.budgetId],
+    references: [leadsBudgets.id],
+  }),
+  author: one(user, {
+    fields: [leadNotes.authorUserId],
+    references: [user.id],
+  }),
+}));
 
 export const financialPaymentsRelations = relations(
   financialPayments,
@@ -379,6 +422,8 @@ export type Package = typeof packages.$inferSelect;
 export type NewPackage = typeof packages.$inferInsert;
 export type LeadBudget = typeof leadsBudgets.$inferSelect;
 export type NewLeadBudget = typeof leadsBudgets.$inferInsert;
+export type LeadNote = typeof leadNotes.$inferSelect;
+export type NewLeadNote = typeof leadNotes.$inferInsert;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
 export type PackageImage = typeof packageImages.$inferSelect;

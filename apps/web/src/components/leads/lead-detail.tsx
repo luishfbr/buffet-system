@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import Link from "next/link";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
+import { Alert } from "@/components/ui/alert";
 import {
   LEAD_STATUSES,
   LEAD_STATUS_LABELS,
@@ -13,7 +16,9 @@ import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SkeletonList } from "@/components/ui/skeleton";
 import { SchedulePanel } from "@/components/finance/schedule-panel";
+import { NoteTimeline } from "@/components/leads/note-timeline";
 
 /** Slice an ISO datetime to the `yyyy-MM-dd` a date input expects. */
 function toDateInput(iso: string | null): string {
@@ -41,8 +46,7 @@ export function LeadDetailForm({
   const [packageId, setPackageId] = useState("");
   const [status, setStatus] = useState<LeadStatus>("novo");
   const [lostReason, setLostReason] = useState("");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -57,7 +61,6 @@ export function LeadDetailForm({
     setPackageId(data.packageId ?? "");
     setStatus(data.status);
     setLostReason(data.lostReason ?? "");
-    setNotes(data.notes ?? "");
   }, [leadId]);
 
   useEffect(() => {
@@ -79,11 +82,13 @@ export function LeadDetailForm({
         packageId: packageId || null,
         status,
         lostReason: status === "perdido" ? lostReason || null : null,
-        notes: notes || null,
+        // `notes` (coluna legada do RF20) não é mais escrita pela UI: o
+        // histórico virou append-only em `lead_notes` (RF35). O valor antigo
+        // fica preservado no banco justamente por não ir no payload.
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -103,19 +108,30 @@ export function LeadDetailForm({
   }
 
   if (!lead) {
-    return <p className="text-sm text-muted-foreground">Carregando...</p>;
+    return <SkeletonList rows={4} label="Carregando negociação" />;
   }
 
   return (
     <div className="flex flex-col gap-5">
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      {/* RF21: visual overbooking alert — never blocks saving. */}
+      {/* RF21: alerta visual de overbooking — nunca bloqueia o salvamento.
+          Usa os tokens oklch do tema (antes eram cores `amber-*` cruas) e leva
+          à agenda (RF31), em vez de terminar num aviso sem saída. */}
       {lead.conflictCount > 0 && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-          ⚠️ Atenção: já {lead.conflictCount === 1 ? "existe" : "existem"}{" "}
+        <Alert variant="warning" title="Conflito de agenda">
+          Já {lead.conflictCount === 1 ? "existe" : "existem"}{" "}
           {lead.conflictCount}{" "}
-          {lead.conflictCount === 1 ? "evento" : "eventos"} nesta data.
-        </div>
+          {lead.conflictCount === 1 ? "outro evento" : "outros eventos"} nesta
+          data.{" "}
+          {lead.eventDate && (
+            <Link
+              href={`/dashboard/agenda?date=${lead.eventDate.slice(0, 10)}`}
+              className="font-medium text-foreground underline underline-offset-4"
+            >
+              Ver na agenda
+            </Link>
+          )}
+        </Alert>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -210,25 +226,12 @@ export function LeadDetailForm({
         </div>
       )}
 
-      {/* RF20: free-text interaction history. */}
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Histórico de interações</Label>
-        <textarea
-          id="notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={4}
-          placeholder="Anotações, ligações, detalhes combinados pelo WhatsApp..."
-          className="rounded-md border bg-transparent px-3 py-2 text-sm"
-        />
-      </div>
-
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
         Valor total estimado:{" "}
         <strong>{lead.totalValue ? formatBRL(lead.totalValue) : "—"}</strong>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} />
 
       <div className="flex flex-wrap justify-between gap-2">
         {/* RF22: copy the textual proposal for WhatsApp/Word. */}
@@ -245,6 +248,14 @@ export function LeadDetailForm({
         </div>
       </div>
     </form>
+
+    {/* RF35: histórico de interações. Fora do form da negociação — ele tem
+        form próprio, e form aninhado é HTML inválido (mesmo motivo do
+        SchedulePanel abaixo). Cada anotação é uma linha: dois funcionários
+        podem registrar ao mesmo tempo sem se sobrescrever. */}
+    <div className="flex flex-col gap-2 border-t pt-4">
+      <NoteTimeline leadId={lead.id} />
+    </div>
 
     {/* RF23/RF24: financial schedule — owner-only (RNF04). Kept outside the
         form so its buttons don't submit the negotiation. Uses the saved status,

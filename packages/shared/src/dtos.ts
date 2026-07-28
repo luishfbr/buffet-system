@@ -14,6 +14,7 @@ import {
   type PublicTemplate,
   type PublicTheme,
   type BrandColor,
+  type LeadStatus,
 } from "./domain.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
@@ -369,4 +370,158 @@ export function applyPricePolicy(
 ): PublicPagePackage[] {
   if (showPrices) return packages;
   return packages.map((pkg) => ({ ...pkg, pricePerPerson: null }));
+}
+
+// ==========================================
+// Histórico de interações (RF35, evolui RF20)
+// ==========================================
+
+export const createLeadNoteSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Escreva a anotação")
+    .max(5000, "Máximo de 5000 caracteres"),
+});
+
+export type CreateLeadNoteInput = z.infer<typeof createLeadNoteSchema>;
+
+/**
+ * Um registro do histórico (RF35). `authorName` é um **snapshot**: se o
+ * funcionário sair da equipe, a autoria da anotação não se perde.
+ */
+export interface LeadNoteView {
+  id: string;
+  body: string;
+  authorName: string;
+  /** Carimbo de tempo real — renderizado em horário local, não em UTC. */
+  createdAt: string;
+}
+
+// ==========================================
+// Agenda de eventos (RF31)
+// ==========================================
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Janela máxima consultável de uma vez, em dias (~3 meses). */
+export const AGENDA_MAX_RANGE_DAYS = 92;
+
+/** Dias inteiros entre duas datas `YYYY-MM-DD`, em UTC. */
+function daysBetween(from: string, to: string): number {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  return (end - start) / 86_400_000;
+}
+
+export const agendaRangeSchema = z
+  .object({
+    from: z.string().regex(ISO_DATE, "Data inicial inválida"),
+    to: z.string().regex(ISO_DATE, "Data final inválida"),
+    // Query string chega como texto — nada de z.boolean() aqui.
+    includeLost: z.enum(["true", "false"]).optional(),
+  })
+  .refine((v) => v.to >= v.from, {
+    message: "A data final deve ser igual ou posterior à inicial",
+    path: ["to"],
+  })
+  .refine((v) => daysBetween(v.from, v.to) <= AGENDA_MAX_RANGE_DAYS, {
+    message: "Intervalo máximo de 3 meses",
+    path: ["to"],
+  });
+
+export type AgendaRangeInput = z.infer<typeof agendaRangeSchema>;
+
+/**
+ * Um evento na agenda (RF31). A resposta é uma **lista plana**: o agrupamento
+ * por dia e o conflito ("mais de um evento no mesmo dia") são derivados no
+ * cliente. Agrupar no servidor criaria um segundo lugar codificando a regra de
+ * conflito, que já vive no `countDateConflicts` do RF21.
+ */
+export interface AgendaEvent {
+  id: string;
+  customerName: string;
+  eventDate: string;
+  guestCount: number | null;
+  status: LeadStatus;
+  totalValue: string | null;
+  packageName: string | null;
+}
+
+export interface AgendaResponse {
+  events: AgendaEvent[];
+  /**
+   * Negociações sem data definida — não cabem na agenda, mas some-las sem
+   * dizer nada faz o usuário achar que elas desapareceram.
+   */
+  undatedCount: number;
+}
+
+// ==========================================
+// Painel operacional (RF29 / RF30)
+// ==========================================
+
+/** Um evento próximo, já com o aviso de conflito de data resolvido (RF21). */
+export interface DashboardUpcomingEvent {
+  id: string;
+  customerName: string;
+  eventDate: string;
+  guestCount: number | null;
+  status: LeadStatus;
+  /** Há outro evento não perdido no mesmo dia UTC — mesma regra do RF21. */
+  hasConflict: boolean;
+}
+
+/** Uma parcela a vencer, com o cliente já resolvido. Só para `owner` (RNF04). */
+export interface DashboardUpcomingPayment {
+  id: string;
+  budgetId: string;
+  customerName: string;
+  dueDate: string;
+  amount: string;
+  /** Vencida: `dueDate` no passado e ainda pendente. */
+  isOverdue: boolean;
+}
+
+/**
+ * Totais financeiros do painel. **Ausente (`null`) para `member`** — o RNF04
+ * proíbe totalizador de receita para funcionário, e a regra é aplicada no
+ * service: o bloco nem chega a ser consultado.
+ */
+export interface DashboardFinance {
+  receivable: string;
+  received: string;
+  overdueCount: number;
+  nextDue: DashboardUpcomingPayment[];
+}
+
+/** Contagens cruas do catálogo — o percentual é derivado no cliente (RF30). */
+export interface DashboardCatalogCounts {
+  dish: number;
+  drink: number;
+  service: number;
+  packages: number;
+  packagesWithPhotos: number;
+}
+
+/** Resposta de `GET /dashboard/summary` (RF29). */
+export interface DashboardSummary {
+  leads: {
+    byStatus: Record<LeadStatus, number>;
+    total: number;
+    newLast7Days: number;
+  };
+  upcomingEvents: DashboardUpcomingEvent[];
+  catalog: DashboardCatalogCounts;
+  /** A organização já salvou a personalização da página pública (RF25–RF27). */
+  pagePublished: boolean;
+  membersCount: number;
+  finance: DashboardFinance | null;
+}
+
+/** Resposta de `GET /dashboard/badges` — contadores da navegação (RF29). */
+export interface DashboardBadges {
+  newLeads: number;
+  /** `null` para `member` (RNF04). */
+  overduePayments: number | null;
 }
