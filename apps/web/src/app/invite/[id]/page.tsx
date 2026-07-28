@@ -6,6 +6,7 @@ import Link from "next/link";
 import { authClient, useSession } from "@/lib/auth-client";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
+import { FormError } from "@/components/ui/form-error";
 
 export default function AcceptInvitePage({
   params,
@@ -53,14 +54,12 @@ export default function AcceptInvitePage({
       </div>
       <div className="mt-6 flex flex-col gap-4">
         {isPending ? (
-          <p className="text-sm text-muted-foreground">Carregando...</p>
+          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+            Carregando...
+          </p>
         ) : session ? (
           <>
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+            <FormError error={error} />
             <Button
               onClick={handleAccept}
               variant="brand"

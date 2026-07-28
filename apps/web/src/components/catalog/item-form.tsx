@@ -1,17 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { DISH_CATEGORIES, type ItemType } from "@buffet/shared";
 import type { Item } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
 
 const TYPE_LABELS: Record<ItemType, string> = {
   dish: "prato",
   drink: "bebida",
   service: "serviço",
+};
+
+/** Nome do campo no schema → rótulo que está na tela (RNF08). */
+const FIELD_LABELS = {
+  name: "Nome",
+  category: "Categoria",
+  basePrice: "Preço base",
 };
 
 export function ItemForm({
@@ -28,7 +36,7 @@ export function ItemForm({
   const [name, setName] = useState(item?.name ?? "");
   const [category, setCategory] = useState(item?.category ?? "entrada");
   const [basePrice, setBasePrice] = useState(item?.basePrice ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -52,7 +60,7 @@ export function ItemForm({
       }
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -97,7 +105,7 @@ export function ItemForm({
           required
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} labels={FIELD_LABELS} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar

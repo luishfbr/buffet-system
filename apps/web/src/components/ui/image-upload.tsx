@@ -134,8 +134,10 @@ export function ImageUpload({
         onChange={(e) => void handleFile(e.target.files?.[0])}
       />
 
+      {/* Erro de campo: fica ligado ao input por `aria-describedby`, por isso
+          não usa o `FormError` (que é o erro do formulário inteiro). */}
       {error && (
-        <p id={errorId} className="text-sm text-destructive">
+        <p id={errorId} role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}

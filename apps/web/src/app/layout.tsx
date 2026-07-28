@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Geist, Geist_Mono, Fraunces } from "next/font/google";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -50,7 +51,10 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${spaceGrotesk.variable} ${geistSans.variable} ${geistMono.variable} ${fraunces.variable}`}
     >
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {/* Único context provider do app (RNF08) — ver apps/web/CLAUDE.md. */}
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

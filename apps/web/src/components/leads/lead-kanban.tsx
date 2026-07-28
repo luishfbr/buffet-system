@@ -14,7 +14,8 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CalendarDays, Users } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import {
   LEAD_STATUSES,
   LEAD_STATUS_LABELS,
@@ -66,7 +67,7 @@ export function LeadKanban({
   const [board, setBoard] = useState<Lead[]>(leads);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pendingLoss, setPendingLoss] = useState<Lead | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => setBoard(leads), [leads]);
 
@@ -108,9 +109,7 @@ export function LeadKanban({
       onChanged();
     } catch (err) {
       setBoard(previous);
-      setError(
-        err instanceof ApiError ? err.message : "Não foi possível mover o card."
-      );
+      setError(err);
     }
   }
 
@@ -136,11 +135,7 @@ export function LeadKanban({
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
+      <FormError error={error} />
 
       <DndContext
         sensors={sensors}

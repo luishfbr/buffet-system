@@ -42,3 +42,33 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   del: <T>(path: string) => request<T>("DELETE", path),
 };
+
+/**
+ * Mensagem exibível de qualquer erro capturado (RNF08). Centraliza o
+ * `err instanceof ApiError ? err.message : "..."` que estava repetido em toda
+ * página, e cobre falha de rede — nela o `fetch` rejeita com `TypeError`, não
+ * com `ApiError`, e o usuário via só "Erro na requisição".
+ */
+export function errorMessage(
+  err: unknown,
+  fallback = "Algo deu errado. Tente de novo."
+): string {
+  // String crua = validação local da própria tela (não passou pela API).
+  if (typeof err === "string") return err;
+  if (err instanceof ApiError) return err.message;
+  // Falha de rede rejeita com TypeError, não com ApiError — sem este ramo o
+  // usuário offline via "Erro na requisição", que não diz o que fazer.
+  if (err instanceof TypeError)
+    return "Não foi possível falar com o servidor. Verifique sua conexão.";
+  return fallback;
+}
+
+/** Erros por campo devolvidos pelo `ZodValidationPipe`; `{}` quando não houver. */
+export function fieldErrors(err: unknown): Record<string, string[]> {
+  return err instanceof ApiError && err.errors ? err.errors : {};
+}
+
+/** Erro de validação (tem mapa por campo) → inline no form; o resto → toast. */
+export function isValidationError(err: unknown): boolean {
+  return Object.keys(fieldErrors(err)).length > 0;
+}

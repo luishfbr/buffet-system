@@ -8,6 +8,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -81,11 +82,7 @@ export default function SignupPage() {
             required
           />
         </div>
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        <FormError error={error} />
         <Button type="submit" variant="brand" size="lg" disabled={loading}>
           {loading ? "Criando..." : "Criar conta"}
         </Button>

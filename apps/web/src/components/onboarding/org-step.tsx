@@ -7,6 +7,7 @@ import { appHost } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
 
 // Passo 1 do onboarding — cria a organização (RF00). O criador vira `owner`
 // e o slug gera a URL pública (RF17), prevista ao vivo enquanto se digita.
@@ -140,7 +141,7 @@ export function OrgStep({
           )}
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError error={error} />
 
         <Button
           type="submit"

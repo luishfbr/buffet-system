@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type PaymentMethod } from "@buffet/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
+
+const FIELD_LABELS = {
+  paymentMethod: "Método de pagamento",
+  receiptUrl: "Link do comprovante",
+};
 
 /** Settle an installment: pick a method and optionally paste a receipt link (RF24). */
 export function PayForm({
@@ -19,7 +25,7 @@ export function PayForm({
 }) {
   const [method, setMethod] = useState<PaymentMethod>("pix");
   const [receiptUrl, setReceiptUrl] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -33,7 +39,7 @@ export function PayForm({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao dar baixa");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -66,7 +72,7 @@ export function PayForm({
           onChange={(e) => setReceiptUrl(e.target.value)}
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} labels={FIELD_LABELS} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar

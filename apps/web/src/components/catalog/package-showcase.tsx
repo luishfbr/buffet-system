@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronUp, Star } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import { formatBRL } from "@buffet/shared";
 import type { Package } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SkeletonList } from "@/components/ui/skeleton";
 
 /**
  * RF26: ordem e destaque dos pacotes na vitrine pública. Salva na hora — cada
@@ -18,7 +20,7 @@ import { cn } from "@/lib/utils";
 export function PackageShowcase({ onChanged }: { onChanged?: () => void }) {
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,7 +43,7 @@ export function PackageShowcase({ onChanged }: { onChanged?: () => void }) {
       // página) precisa recarregar a prévia.
       onChanged?.();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar a ordem");
+      setError(err);
     }
   }
 
@@ -55,7 +57,7 @@ export function PackageShowcase({ onChanged }: { onChanged?: () => void }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Carregando pacotes...</p>;
+    return <SkeletonList rows={3} label="Carregando pacotes" />;
   }
 
   if (packages.length === 0) {
@@ -142,11 +144,7 @@ export function PackageShowcase({ onChanged }: { onChanged?: () => void }) {
         Os pacotes aparecem na página nesta ordem. O destaque ganha selo e borda
         na cor da marca.
       </p>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
+      <FormError error={error} />
     </div>
   );
 }

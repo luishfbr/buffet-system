@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Check, MessageCircle } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   computeBudgetTotal,
   formatBRL,
@@ -12,8 +12,23 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
 import { whatsappUrl } from "@/components/public/contacts";
 import { cn } from "@/lib/utils";
+
+/**
+ * Rótulos dos campos do `createPublicLeadSchema` como o cliente os vê. É a
+ * tela onde o erro por campo mais importa: quem preenche é um visitante que
+ * não vai tentar de novo se não souber o que corrigir (RF18).
+ */
+const FIELD_LABELS = {
+  customerName: "Nome",
+  customerEmail: "E-mail",
+  customerPhone: "WhatsApp",
+  eventDate: "Data do evento",
+  guestCount: "Número de convidados",
+  packageId: "Pacote",
+};
 
 /**
  * Captação do lead na página pública (RF18). O pacote escolhido é controlado de
@@ -53,7 +68,7 @@ export function LeadForm({
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
   const [website, setWebsite] = useState(""); // honeypot
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -86,7 +101,7 @@ export function LeadForm({
       });
       setDone(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao enviar");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -141,11 +156,7 @@ export function LeadForm({
 
   const submitArea = (
     <>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
+      <FormError error={error} labels={FIELD_LABELS} />
       <Button
         type="submit"
         size="lg"

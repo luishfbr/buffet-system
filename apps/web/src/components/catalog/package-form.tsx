@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import type { Item, Package, PackageWithItems } from "@/lib/types";
 import { formatBRL } from "@buffet/shared";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ export function PackageForm({
   const [isFeatured, setIsFeatured] = useState(pkg?.isFeatured ?? false);
   const [items, setItems] = useState<Item[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -65,7 +66,7 @@ export function PackageForm({
       else await api.post("/packages", payload);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -148,7 +149,7 @@ export function PackageForm({
         </p>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar

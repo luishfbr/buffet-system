@@ -94,7 +94,11 @@ export default function OnboardingPage() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-screen items-center justify-center text-muted-foreground"
+      >
         Carregando...
       </div>
     );

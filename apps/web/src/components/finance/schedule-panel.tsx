@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import {
   splitInstallments,
   formatBRL,
@@ -15,6 +15,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import { PayForm } from "./pay-form";
 
 function addMonths(date: Date, months: number): Date {
@@ -44,15 +48,18 @@ export function SchedulePanel({
   leadStatus: LeadStatus;
   totalValue: string | null;
 }) {
+  const toast = useToast();
   const [payments, setPayments] = useState<FinancialPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [count, setCount] = useState("3");
   const [firstDue, setFirstDue] = useState(
     () => new Date().toISOString().slice(0, 10)
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [toDeleteId, setToDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,7 +83,7 @@ export function SchedulePanel({
       return;
     }
     if (!Number.isInteger(n) || n < 1 || n > 60) {
-      setError("Número de parcelas inválido.");
+      setError("Informe um número de parcelas entre 1 e 60.");
       return;
     }
     setSaving(true);
@@ -88,21 +95,29 @@ export function SchedulePanel({
         dueDate: addMonths(base, i).toISOString(),
       }));
       await api.post(`/finance/leads/${budgetId}/schedule`, { installments });
+      toast.success(`Cronograma gerado com ${n} parcelas.`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao gerar parcelas");
+      setError(err);
     } finally {
       setSaving(false);
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm("Excluir esta parcela?")) return;
+  async function confirmRemove() {
+    if (!toDeleteId) return;
+    setDeleting(true);
     try {
-      await api.del(`/finance/payments/${id}`);
+      await api.del(`/finance/payments/${toDeleteId}`);
+      setToDeleteId(null);
+      toast.success("Parcela excluída.");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao excluir");
+      // A API recusa excluir parcela paga (409) e diz o porquê.
+      toast.error(errorMessage(err, "Não foi possível excluir a parcela."));
+      setToDeleteId(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -115,7 +130,7 @@ export function SchedulePanel({
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Carregando...</p>;
+    return <SkeletonList rows={3} label="Carregando parcelas" />;
   }
 
   return (
@@ -151,7 +166,7 @@ export function SchedulePanel({
               {saving ? "Gerando..." : "Gerar cronograma"}
             </Button>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          <FormError error={error} />
         </form>
       ) : (
         <div className="overflow-x-auto rounded-md border">
@@ -208,7 +223,7 @@ export function SchedulePanel({
                             variant="ghost"
                             size="sm"
                             className="text-destructive"
-                            onClick={() => remove(p.id)}
+                            onClick={() => setToDeleteId(p.id)}
                           >
                             Excluir
                           </Button>
@@ -222,9 +237,7 @@ export function SchedulePanel({
           </table>
         </div>
       )}
-      {error && payments.length > 0 && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
+      {payments.length > 0 && <FormError error={error} />}
 
       <Modal
         open={payingId !== null}
@@ -236,12 +249,25 @@ export function SchedulePanel({
             paymentId={payingId}
             onDone={() => {
               setPayingId(null);
+              toast.success("Baixa registrada.");
               load();
             }}
             onCancel={() => setPayingId(null)}
           />
         )}
       </Modal>
+
+      {/* Aninhado dentro do Modal da negociação — daí a trava de scroll
+          contada do `Modal` (RNF08). */}
+      <ConfirmDialog
+        open={toDeleteId !== null}
+        title="Excluir esta parcela?"
+        description="A parcela sai do cronograma e o valor deixa de ser cobrado. Parcelas já pagas não podem ser excluídas."
+        confirmLabel="Excluir parcela"
+        loading={deleting}
+        onConfirm={confirmRemove}
+        onCancel={() => setToDeleteId(null)}
+      />
     </div>
   );
 }

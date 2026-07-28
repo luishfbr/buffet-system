@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Star, Trash2 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import type { PackageImage } from "@/lib/types";
 import { MAX_PACKAGE_IMAGES } from "@buffet/shared";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Galeria de fotos do pacote (RF28). Salva na hora — cada foto é uma chamada à
@@ -18,7 +20,7 @@ import { ImageUpload } from "@/components/ui/image-upload";
 export function PackageGallery({ packageId }: { packageId: string }) {
   const [images, setImages] = useState<PackageImage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,7 +41,7 @@ export function PackageGallery({ packageId }: { packageId: string }) {
       await action();
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar a foto");
+      setError(err);
     }
   }
 
@@ -66,7 +68,16 @@ export function PackageGallery({ packageId }: { packageId: string }) {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Carregando fotos...</p>
+        <div role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Carregando fotos</span>
+          <ul aria-hidden="true" className="grid grid-cols-3 gap-2">
+            {[0, 1, 2].map((i) => (
+              <li key={i}>
+                <Skeleton className="aspect-square w-full" />
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : (
         <>
           {images.length > 0 && (
@@ -147,7 +158,7 @@ export function PackageGallery({ packageId }: { packageId: string }) {
         </>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} />
     </div>
   );
 }
