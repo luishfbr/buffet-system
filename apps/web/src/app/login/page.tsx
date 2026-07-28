@@ -8,6 +8,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormError } from "@/components/ui/form-error";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -58,7 +59,16 @@ export default function LoginPage() {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="password">Senha</Label>
+          <div className="flex items-baseline justify-between gap-2">
+            <Label htmlFor="password">Senha</Label>
+            {/* RF33: antes desta sprint, quem esquecia a senha ficava sem saída. */}
+            <Link
+              href="/forgot-password"
+              className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Esqueci minha senha
+            </Link>
+          </div>
           <Input
             id="password"
             type="password"
@@ -68,11 +78,7 @@ export default function LoginPage() {
             required
           />
         </div>
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        <FormError error={error} />
         <Button type="submit" variant="brand" size="lg" disabled={loading}>
           {loading ? "Entrando..." : "Entrar"}
         </Button>

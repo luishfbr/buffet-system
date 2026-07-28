@@ -38,6 +38,13 @@ async function main() {
     trustedOrigins: (process.env.TRUSTED_ORIGINS ?? "http://localhost:3000")
       .split(",")
       .map((o) => o.trim()),
+    appUrl: process.env.APP_URL ?? "http://localhost:3000",
+    // O seed só cria contas direto pela API do Better-Auth; nenhum fluxo dele
+    // dispara e-mail. Porta silenciosa para não poluir a saída do comando.
+    mail: {
+      sendPasswordReset: async () => {},
+      sendInvitation: async () => {},
+    },
   });
 
   // --- Idempotency: remove any previous demo data ------------------------

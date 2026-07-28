@@ -11,6 +11,8 @@ import { LeadsModule } from "./leads/leads.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
 import { UploadsModule } from "./uploads/uploads.module.js";
 import { PageSettingsModule } from "./page-settings/page-settings.module.js";
+import { DashboardModule } from "./dashboard/dashboard.module.js";
+import { MailModule } from "./mail/mail.module.js";
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { PageSettingsModule } from "./page-settings/page-settings.module.js";
       { name: "default", ttl: 60_000, limit: 100 },
     ]),
     DatabaseModule,
+    // Antes do AuthModule: o factory do Better-Auth injeta o MailerService.
+    MailModule,
     AuthModule,
     ItemsModule,
     PackagesModule,
@@ -28,6 +32,7 @@ import { PageSettingsModule } from "./page-settings/page-settings.module.js";
     FinanceModule,
     UploadsModule,
     PageSettingsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
 })

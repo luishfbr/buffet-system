@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { and, asc, eq, inArray, type SQL } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { schema, type Database } from "@buffet/db";
 import {
   applyPricePolicy,
   computeBudgetTotal,
+  fitsBudgetTotal,
   DEFAULT_PAGE_SETTINGS,
   type CreatePublicLeadInput,
   type PublicPageData,
@@ -16,10 +18,20 @@ import {
 } from "@buffet/shared";
 import { DB } from "../database/database.module.js";
 import { toPublicSettings } from "../page-settings/page-settings.service.js";
+import { MailerService } from "../mail/mail.service.js";
+import { newLeadEmail } from "../mail/mail.templates.js";
+
+/** Teto de destinatários do aviso de novo lead — proprietários da org (RF32). */
+const NOTIFY_RECIPIENTS_LIMIT = 5;
 
 @Injectable()
 export class PublicService {
-  constructor(@Inject(DB) private readonly db: Database) {}
+  private readonly logger = new Logger(PublicService.name);
+
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly mailer: MailerService
+  ) {}
 
   /**
    * Tudo que a página `/{slug}` precisa para se desenhar: dados do buffet, a
@@ -205,6 +217,16 @@ export class PublicService {
         ? computeBudgetTotal(pricePerPerson, input.guestCount)
         : null;
 
+    // O produto pode estourar o `numeric(12,2)` da coluna. Recusar com 400 e
+    // uma mensagem legível é melhor que deixar o Postgres devolver 500 e perder
+    // o lead — o visitante consegue corrigir o número de convidados.
+    if (totalValue && !fitsBudgetTotal(totalValue)) {
+      throw new BadRequestException(
+        "O número de convidados é alto demais para este pacote. Fale com o buffet para um orçamento sob medida."
+      );
+    }
+
+    const eventDate = input.eventDate ? new Date(input.eventDate) : null;
     const [lead] = await this.db
       .insert(schema.leadsBudgets)
       .values({
@@ -212,7 +234,7 @@ export class PublicService {
         customerName: input.customerName,
         customerEmail: input.customerEmail || null,
         customerPhone: input.customerPhone,
-        eventDate: input.eventDate ? new Date(input.eventDate) : null,
+        eventDate,
         guestCount: input.guestCount ?? null,
         packageId,
         totalValue,
@@ -220,6 +242,91 @@ export class PublicService {
       })
       .returning({ id: schema.leadsBudgets.id });
 
+    // RF32: avisa o buffet **sem `await`** — quem está do outro lado é um
+    // visitante esperando a confirmação do orçamento, e ele não pode pagar a
+    // latência de um POST a provedor de e-mail. Falha aqui só vira log.
+    void this.notifyNewLead({
+      orgId: org.id,
+      leadId: lead!.id,
+      customerName: input.customerName,
+      customerEmail: input.customerEmail || null,
+      customerPhone: input.customerPhone,
+      eventDate,
+      guestCount: input.guestCount ?? null,
+      packageId,
+      totalValue,
+    }).catch((err) =>
+      this.logger.error(`Falha ao avisar sobre o lead ${lead!.id}: ${String(err)}`)
+    );
+
     return { id: lead!.id };
+  }
+
+  /**
+   * Aviso de novo lead aos proprietários da organização (RF32).
+   *
+   * Antes disto, um pedido de orçamento entrava no banco sem sinal nenhum: o
+   * dono só descobria abrindo `/dashboard/leads` por conta própria.
+   */
+  private async notifyNewLead(lead: {
+    orgId: string;
+    leadId: string;
+    customerName: string;
+    customerEmail: string | null;
+    customerPhone: string;
+    eventDate: Date | null;
+    guestCount: number | null;
+    packageId: string | null;
+    totalValue: string | null;
+  }): Promise<void> {
+    const [org] = await this.db
+      .select({ name: schema.organization.name })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, lead.orgId))
+      .limit(1);
+
+    // Só proprietários: o funcionário não recebe (RNF04 na mesma direção do
+    // resto — quem responde comercialmente pelo buffet é o dono).
+    const owners = await this.db
+      .select({ email: schema.user.email })
+      .from(schema.member)
+      .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+      .where(
+        and(
+          eq(schema.member.organizationId, lead.orgId),
+          eq(schema.member.role, "owner")
+        )
+      )
+      .limit(NOTIFY_RECIPIENTS_LIMIT);
+    if (owners.length === 0) return;
+
+    const [pkg] = lead.packageId
+      ? await this.db
+          .select({ name: schema.packages.name })
+          .from(schema.packages)
+          .where(eq(schema.packages.id, lead.packageId))
+          .limit(1)
+      : [];
+
+    const digits = lead.customerPhone.replace(/\D/g, "");
+    const phone = digits.length <= 11 ? `55${digits}` : digits;
+
+    await this.mailer.send({
+      to: owners.map((o) => o.email),
+      ...newLeadEmail({
+        orgName: org?.name ?? "seu buffet",
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone,
+        customerEmail: lead.customerEmail,
+        eventDate: lead.eventDate,
+        guestCount: lead.guestCount,
+        packageName: pkg?.name ?? null,
+        totalValue: lead.totalValue,
+        // Cai direto na negociação — o `?open=` que a página de leads passou a
+        // entender na Sprint 11.
+        leadUrl: `${this.mailer.appUrl}/dashboard/leads?open=${lead.leadId}`,
+        whatsappUrl: `https://wa.me/${phone}`,
+      }),
+    });
   }
 }
