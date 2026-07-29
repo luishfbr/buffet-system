@@ -43,6 +43,13 @@
       "when": 1785264620243,
       "tag": "0005_marvelous_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785326709557,
+      "tag": "0006_lean_starjammers",
+      "breakpoints": true
     }
   ]
 }

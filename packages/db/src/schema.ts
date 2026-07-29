@@ -142,6 +142,19 @@ export const items = pgTable(
     // category (dishes only): 'entrada' | 'principal' | 'sobremesa'
     category: text("category"),
     basePrice: numeric("basePrice", { precision: 10, scale: 2 }).notNull(),
+    /**
+     * RF-V2-09: como o `basePrice` vira preço.
+     * 'FIXED' | 'PER_GUEST' | 'PER_UNIT' | 'PER_UNIT_AUTO'.
+     *
+     * Default 'FIXED' preserva o comportamento do MVP para todo item já
+     * cadastrado: valor fixo é exatamente o que eles eram.
+     */
+    pricingType: text("pricingType").notNull().default("FIXED"),
+    /** Só 'PER_UNIT': limites da quantidade pedida na proposta. */
+    minQty: integer("minQty"),
+    maxQty: integer("maxQty"),
+    /** Só 'PER_UNIT_AUTO': quantos convidados cada unidade atende. */
+    guestsPerUnit: integer("guestsPerUnit"),
     isActive: boolean("isActive").notNull().default(true),
     createdAt: timestamp("createdAt").notNull().defaultNow(),
   },
@@ -319,6 +332,66 @@ export const leadNotes = pgTable(
 );
 
 /**
+ * RF-V2-09/RF-V2-10: composição da proposta em elaboração.
+ *
+ * **Rascunho, não snapshot.** Estas linhas são editáveis enquanto a negociação
+ * está viva; ao enviar a proposta (RF-V2-05) elas são congeladas em
+ * `budget_proposal_items`, e alterar o catálogo depois disso não mexe mais no
+ * que o cliente recebeu. Separar as duas tabelas é o que permite editar o
+ * rascunho sem reescrever o histórico.
+ *
+ * Cada linha é **ou** um pacote **ou** um item avulso. Sem `onDelete` nas duas
+ * FKs, de propósito: apagar do catálogo algo que está numa proposta em
+ * andamento deve ser bloqueado pelo service (com "inative em vez de excluir"),
+ * não sumir da proposta em silêncio — mesma escolha de `leads_budgets.packageId`.
+ */
+export const budgetLineItems = pgTable(
+  "budget_line_items",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    budgetId: text("budgetId")
+      .notNull()
+      .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+    packageId: text("packageId").references(() => packages.id),
+    itemId: text("itemId").references(() => items.id),
+    /** Só faz sentido em `PER_UNIT`; nos demais a quantidade é derivada. */
+    quantity: integer("quantity"),
+    sortOrder: integer("sortOrder").notNull().default(0),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [index("budget_lines_budget_idx").on(table.budgetId, table.sortOrder)]
+);
+
+/**
+ * RF-V2-10: descontos e taxas da proposta em elaboração.
+ *
+ * `value` é reais quando `mode = 'fixo'` e pontos percentuais quando
+ * `'percentual'` ('10.00' = 10%) — sempre positivo, o sinal vem do `kind`.
+ * A ordem de aplicação (descontos antes de taxas) é do motor de cálculo, não
+ * desta tabela: `sortOrder` é só a ordem de exibição.
+ */
+export const budgetAdjustments = pgTable(
+  "budget_adjustments",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    budgetId: text("budgetId")
+      .notNull()
+      .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+    // kind: 'desconto' | 'taxa'
+    kind: text("kind").notNull(),
+    // mode: 'fixo' | 'percentual'
+    mode: text("mode").notNull(),
+    value: numeric("value", { precision: 10, scale: 2 }).notNull(),
+    label: text("label"),
+    sortOrder: integer("sortOrder").notNull().default(0),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [
+    index("budget_adjustments_budget_idx").on(table.budgetId, table.sortOrder),
+  ]
+);
+
+/**
  * RF-V2-04: log de auditoria das transições de estado.
  *
  * **Append-only, e isso é garantido no banco** (RNF-V2-05): a migration 0005
@@ -442,6 +515,36 @@ export const leadsBudgetsRelations = relations(
     payments: many(financialPayments),
     notes: many(leadNotes),
     statusLog: many(budgetStatusLog),
+    lineItems: many(budgetLineItems),
+    adjustments: many(budgetAdjustments),
+  })
+);
+
+export const budgetLineItemsRelations = relations(
+  budgetLineItems,
+  ({ one }) => ({
+    budget: one(leadsBudgets, {
+      fields: [budgetLineItems.budgetId],
+      references: [leadsBudgets.id],
+    }),
+    package: one(packages, {
+      fields: [budgetLineItems.packageId],
+      references: [packages.id],
+    }),
+    item: one(items, {
+      fields: [budgetLineItems.itemId],
+      references: [items.id],
+    }),
+  })
+);
+
+export const budgetAdjustmentsRelations = relations(
+  budgetAdjustments,
+  ({ one }) => ({
+    budget: one(leadsBudgets, {
+      fields: [budgetAdjustments.budgetId],
+      references: [leadsBudgets.id],
+    }),
   })
 );
 
@@ -497,6 +600,10 @@ export type LeadNote = typeof leadNotes.$inferSelect;
 export type NewLeadNote = typeof leadNotes.$inferInsert;
 export type BudgetStatusLog = typeof budgetStatusLog.$inferSelect;
 export type NewBudgetStatusLog = typeof budgetStatusLog.$inferInsert;
+export type BudgetLineItem = typeof budgetLineItems.$inferSelect;
+export type NewBudgetLineItem = typeof budgetLineItems.$inferInsert;
+export type BudgetAdjustment = typeof budgetAdjustments.$inferSelect;
+export type NewBudgetAdjustment = typeof budgetAdjustments.$inferInsert;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
 export type PackageImage = typeof packageImages.$inferSelect;
