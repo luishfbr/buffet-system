@@ -57,6 +57,13 @@
       "when": 1785327604349,
       "tag": "0007_high_mach_iv",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785329203968,
+      "tag": "0008_heavy_justice",
+      "breakpoints": true
     }
   ]
 }

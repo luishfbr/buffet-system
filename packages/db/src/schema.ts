@@ -267,6 +267,12 @@ export const leadsBudgets = pgTable(
      */
     status: text("status").notNull(),
     lostReason: text("lostReason"),
+    /**
+     * RF-V2-07: validade da proposta ativa. Espelha `budget_revisions.validUntil`
+     * da revisão mais recente — denormalizado para o cron de expiração poder
+     * varrer por índice, sem join.
+     */
+    validUntil: timestamp("validUntil"),
     notes: text("notes"),
     createdAt: timestamp("createdAt").notNull().defaultNow(),
     updatedAt: timestamp("updatedAt").notNull().defaultNow(),
@@ -328,6 +334,88 @@ export const leadNotes = pgTable(
   },
   (table) => [
     index("lead_notes_budget_idx").on(table.budgetId, table.createdAt),
+  ]
+);
+
+/**
+ * RF-V2-07: configuração operacional do tenant.
+ *
+ * Tabela própria, e não colunas em `organization`, pelo mesmo motivo de
+ * `org_public_settings`: `organization` pertence ao plugin do Better-Auth.
+ */
+export const orgSettings = pgTable("org_settings", {
+  organizationId: text("organizationId")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  /** Validade padrão da proposta, em dias corridos (mín. 1, máx. 30). */
+  proposalValidityDays: integer("proposalValidityDays").notNull().default(7),
+});
+
+/**
+ * RF-V2-11: revisões versionadas da proposta.
+ *
+ * Cada envio cria uma revisão numerada. Só a **mais recente** vale para
+ * expiração e aprovação; as anteriores são somente leitura — é o que permite
+ * reenviar uma proposta sem apagar o que o cliente já tinha recebido.
+ */
+export const budgetRevisions = pgTable(
+  "budget_revisions",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    budgetId: text("budgetId")
+      .notNull()
+      .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+    revisionNumber: integer("revisionNumber").notNull(),
+    validUntil: timestamp("validUntil").notNull(),
+    totalValue: numeric("totalValue", { precision: 12, scale: 2 }).notNull(),
+    subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+    /** Ajustes congelados em JSON — o catálogo deles não existe fora daqui. */
+    adjustments: text("adjustments"),
+    authorUserId: text("authorUserId").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    authorName: text("authorName").notNull(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [
+    index("budget_revisions_budget_idx").on(
+      table.budgetId,
+      table.revisionNumber
+    ),
+  ]
+);
+
+/**
+ * RF-V2-05: snapshot dos itens de uma revisão.
+ *
+ * **Congelado.** Nome, preço e tipo de precificação são cópias do momento do
+ * envio: reajustar o catálogo depois não move o valor de uma proposta que já
+ * saiu. As FKs para catálogo são `set null` — o item pode ser excluído mais
+ * tarde, e o snapshot continua contando a história com os dados de então.
+ */
+export const budgetProposalItems = pgTable(
+  "budget_proposal_items",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    revisionId: text("revisionId")
+      .notNull()
+      .references(() => budgetRevisions.id, { onDelete: "cascade" }),
+    packageId: text("packageId").references(() => packages.id, {
+      onDelete: "set null",
+    }),
+    itemId: text("itemId").references(() => items.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    pricingType: text("pricingType").notNull(),
+    basePrice: numeric("basePrice", { precision: 10, scale: 2 }).notNull(),
+    quantity: integer("quantity").notNull(),
+    subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+    sortOrder: integer("sortOrder").notNull().default(0),
+  },
+  (table) => [
+    index("budget_proposal_items_revision_idx").on(
+      table.revisionId,
+      table.sortOrder
+    ),
   ]
 );
 
@@ -526,6 +614,28 @@ export const leadsBudgetsRelations = relations(
     statusLog: many(budgetStatusLog),
     lineItems: many(budgetLineItems),
     adjustments: many(budgetAdjustments),
+    revisions: many(budgetRevisions),
+  })
+);
+
+export const budgetRevisionsRelations = relations(
+  budgetRevisions,
+  ({ one, many }) => ({
+    budget: one(leadsBudgets, {
+      fields: [budgetRevisions.budgetId],
+      references: [leadsBudgets.id],
+    }),
+    items: many(budgetProposalItems),
+  })
+);
+
+export const budgetProposalItemsRelations = relations(
+  budgetProposalItems,
+  ({ one }) => ({
+    revision: one(budgetRevisions, {
+      fields: [budgetProposalItems.revisionId],
+      references: [budgetRevisions.id],
+    }),
   })
 );
 
@@ -613,6 +723,11 @@ export type BudgetLineItem = typeof budgetLineItems.$inferSelect;
 export type NewBudgetLineItem = typeof budgetLineItems.$inferInsert;
 export type BudgetAdjustment = typeof budgetAdjustments.$inferSelect;
 export type NewBudgetAdjustment = typeof budgetAdjustments.$inferInsert;
+export type BudgetRevision = typeof budgetRevisions.$inferSelect;
+export type NewBudgetRevision = typeof budgetRevisions.$inferInsert;
+export type BudgetProposalItem = typeof budgetProposalItems.$inferSelect;
+export type NewBudgetProposalItem = typeof budgetProposalItems.$inferInsert;
+export type OrgSettings = typeof orgSettings.$inferSelect;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
 export type PackageImage = typeof packageImages.$inferSelect;
