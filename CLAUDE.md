@@ -43,8 +43,14 @@ Estas regras se aplicam a **web e api**; os arquivos filhos não as repetem.
 - **Fonte de verdade compartilhada.** Enums e labels de domínio e schemas Zod vivem em
   `@buffet/shared` (`domain.ts`, `dtos.ts`); o schema de dados vive em `@buffet/db`. **Não
   hardcode** enums, labels ou DTOs dentro das apps — importe de `@buffet/shared`.
-- **Idioma:** toda copy voltada ao usuário e mensagens de erro em **pt-BR**. Datas renderizadas com
-  `timeZone: "UTC"` (ex.: `toLocaleDateString("pt-BR", { timeZone: "UTC" })`).
+- **Idioma:** toda copy voltada ao usuário e mensagens de erro em **pt-BR**.
+- **Datas — duas semânticas, não confunda:**
+  - **Data de evento** (`eventDate`, `dueDate`) é **data-sem-hora**, guardada à meia-noite UTC.
+    Renderize com `timeZone: "UTC"` (`toLocaleDateString("pt-BR", { timeZone: "UTC" })`) e faça
+    aritmética com `Date.UTC`/`getUTCDate`. Em `America/Sao_Paulo` (UTC-3), tratar como local
+    joga o dia para o anterior.
+  - **Carimbo de tempo real** (`lead_notes.createdAt`, `paidAt`) é um instante. Renderize em
+    **horário local** — em UTC, uma anotação feita às 18:30 apareceria como 21:30.
 - **Rastreabilidade:** ao implementar algo ligado a um requisito, marque com a tag `RF##`/`RNF##`
   em comentário (convenção já usada em todo o código).
 
@@ -52,24 +58,70 @@ Estas regras se aplicam a **web e api**; os arquivos filhos não as repetem.
 
 ⚠️ **Pegadinha crítica:** [`packages/db/drizzle.config.ts`](packages/db/drizzle.config.ts) aponta
 para `./dist/schema.js` (compilado), **não** para o `src`, por causa dos imports `.js` do NodeNext.
-Logo, **rode `pnpm build` antes de gerar/aplicar migrations.**
+Logo, **recompile o pacote antes de gerar/aplicar migrations.**
 
 Fluxo ao alterar o schema:
 
 ```bash
 # 1. edite packages/db/src/schema.ts
-pnpm build          # recompila @buffet/db → dist/schema.js
-pnpm db:generate    # drizzle-kit gera a migration em packages/db/drizzle/
-pnpm db:migrate     # aplica no banco
+pnpm --filter @buffet/db build   # recompila @buffet/db → dist/schema.js
+pnpm db:generate                 # drizzle-kit gera a migration em packages/db/drizzle/
+pnpm db:migrate                  # aplica no banco
 ```
+
+⚠️ **Use o `--filter`, não o `pnpm build` da raiz, com o `pnpm dev` rodando.** O build da raiz passa
+por `apps/web` e escreve o bundle de produção em `apps/web/.next` — o mesmo diretório que o `next dev`
+está usando. O dev server passa a carregar chunks do outro build e quebra com
+`Cannot find module './<n>.js'`. Se acontecer: pare o dev, `rm -rf apps/web/.next`, suba de novo.
 
 | Script | Onde roda | O quê |
 |---|---|---|
 | `pnpm db:generate` / `db:migrate` / `db:studio` | pacote `@buffet/db` | Drizzle Kit |
 | `pnpm db:seed` | pacote `@buffet/api` | Seed idempotente de demonstração (precisa do runtime Nest/Better-Auth; carrega `.env` via dotenv-cli) |
 
+**Migration com backfill:** o `drizzle-kit` só gera o DDL. Se a mudança precisa mover dados, edite o
+`.sql` gerado e acrescente o `INSERT ... SELECT` **idempotente** (`WHERE NOT EXISTS`), para reaplicar
+não duplicar. Precedente: [`0003_slim_blue_marvel.sql`](packages/db/drizzle/0003_slim_blue_marvel.sql),
+que preserva as notas do RF20 ao criar `lead_notes` — inclusive gerando **UUIDv7 em SQL** (função
+temporária em `pg_temp`), porque o contrato de ids vale também dentro da migration. Prefira **manter**
+a coluna antiga como legado a dropá-la: risco sem ganho.
+
+**Migration que muda vocabulário de dados** (v2 em diante) leva três coisas a mais, todas na
+[`0005_marvelous_celestials.sql`](packages/db/drizzle/0005_marvelous_celestials.sql) como precedente:
+
+- **Rastro antes da reescrita.** Grave o evento de auditoria *antes* do `UPDATE`, para o estado de
+  origem ficar registrado — é o que permite a reversão mirar só nas linhas que a migration mexeu.
+- **Reversão à mão** em `packages/db/drizzle/down/<nome>.down.sql` (o drizzle-kit não gera `down`),
+  em transação única, abortando com `RAISE EXCEPTION` se encontrar dado que o esquema antigo não
+  comporta — melhor parar do que inventar um destino.
+- **Script de validação** que roda depois do `db:migrate` e serve de portão de deploy:
+  `pnpm --filter @buffet/db validate:status`. Ele não checa só metadados — **tenta a escrita
+  proibida e espera a exceção**, porque trigger existente e trigger funcionando são coisas
+  diferentes.
+
+⚠️ **Trigger de imutabilidade e `ON DELETE cascade` brigam.** Um `BEFORE DELETE` que sempre levanta
+exceção impede apagar a linha **pai**. A saída, na `0005`: liberar o delete quando o pai já não
+existe (o Postgres apaga o pai primeiro e só então dispara a ação referencial), o que distingue
+"apagar auditoria de um registro vivo" de "o registro inteiro deixou de existir".
+
 Migrations versionadas em `packages/db/drizzle/*.sql` + `meta/_journal.json`. Postgres local via
 `docker compose up -d` (porta 5432); em produção roda no Neon.
+
+## Storage de imagens (RNF07)
+
+`docker compose up -d` também sobe **MinIO** (API 9000, console 9001) e um `minio-init` que cria o
+bucket `buffet-assets` com leitura anônima. O upload é **direto do navegador para o bucket** via URL
+pré-assinada emitida por `POST /uploads/presign` — o byte nunca passa pela API.
+
+Duas regras inegociáveis ao mexer nisso:
+
+- **A chave do objeto é derivada no servidor** (`orgs/<orgId>/<escopo>/<uuidv7>.<ext>`); nada de
+  caminho vindo do cliente.
+- **Toda URL de imagem persistida passa por `UploadsService.assertOwnedAssetUrl(orgId, url)`** antes
+  de ir ao banco, senão o campo vira um "cole a URL que quiser".
+
+A assinatura inclui `content-type` e `content-length` (`signableHeaders`) — sem o primeiro, o bucket
+grava o tipo que o cliente mandar e um HTML acaba servido a partir do host de assets.
 
 ## Variáveis de ambiente
 
@@ -85,6 +137,12 @@ Nunca commite o `.env`.
 | `TRUSTED_ORIGINS` | api | CSV de origins de CORS (default `http://localhost:3000`) |
 | `NEXT_PUBLIC_API_URL` | web | base da API (`http://localhost:3333`) |
 | `NEXT_PUBLIC_APP_URL` | web | base do app, para montar links `/{slug}` |
+| `S3_*` | api | endpoint/bucket/credenciais do storage de imagens (MinIO local) |
+| `PUBLIC_ASSET_BASE_URL` | api | base pública dos objetos; **toda URL de imagem salva é validada contra ela** |
+| `TRUST_PROXY` | api | nº de proxies confiáveis à frente (RNF06). Vazio em dev; defina em produção atrás de LB |
+| `RESEND_API_KEY` | api | chave do Resend. **Vazia = driver console** (e-mail vai para o terminal) |
+| `MAIL_FROM` | api | remetente dos e-mails transacionais |
+| `APP_URL` | api | base do app para montar links do painel nos e-mails (o backend não lê vars `NEXT_PUBLIC_*`) |
 
 ## Qualidade & CI
 

@@ -17,5 +17,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # RNF07: storage S3-compatível para as imagens da página pública (dev).
+  minio:
+    image: minio/minio:latest
+    container_name: buffet-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: buffet
+      MINIO_ROOT_PASSWORD: buffetdev123
+    ports:
+      # 9000 = API S3 (destino dos PUT pré-assinados); 9001 = console web
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - buffet-minio-data:/data
+
+  # Cria o bucket e libera leitura anônima na primeira subida. Sai depois de rodar.
+  minio-init:
+    image: minio/mc:latest
+    container_name: buffet-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 buffet buffetdev123 >/dev/null 2>&1; do
+        echo 'Aguardando o MinIO subir...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/buffet-assets;
+      mc anonymous set download local/buffet-assets;
+      echo 'Bucket buffet-assets pronto.';
+      "
+
 volumes:
   buffet-pgdata:
+  buffet-minio-data:

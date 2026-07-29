@@ -30,7 +30,10 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 
 ## 🚫 Fora de Escopo (MVP)
 
-- **Notificação automática de novo lead:** O RF18 gera o registro no sistema, mas o MVP não envia notificação automática (e-mail, push ou painel) ao buffet quando um novo lead chega. Fica registrado como melhoria futura, não como lacuna do MVP.
+- **~~Notificação automática de novo lead~~ — promovido a `RF32` na Sprint 12.** O escopo original registrava o lead sem avisar ninguém: o proprietário só descobria o pedido de orçamento abrindo o painel por conta própria. Na prática isso não era uma simplificação, e sim o ponto em que o produto deixava de funcionar — um lead podia esfriar por dias sem que houvesse falha alguma no sistema. A ausência de e-mail transacional também deixava a **recuperação de senha inoperante** (`RF33`) e reduzia o convite de equipe a um link copiado à mão (`RF34`). Os três foram absorvidos como requisitos.
+- **Push e notificação no painel:** o aviso de novo lead é por e-mail (`RF32`) e por contador na navegação (`RF29`). Web push e central de notificações permanecem fora.
+- **Template de proposta por organização:** o `RF22` usa um texto único do sistema.
+- **Upload de comprovante financeiro:** o `RF24` aceita link; o storage de imagens (`RNF07`) cobre apenas a página pública.
 
 ---
 
@@ -70,7 +73,7 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 ### Módulo de Gestão de Negociações (Funil de Vendas)
 
 - **RF19 - Listagem Dinâmica de Negociações:** Tela gerencial para o buffet visualizar leads em uma tabela avançada com filtros rápidos por status: `Novo (Lead)`, `Em Negociação`, `Formalizando`, `Aprovado` e `Perdido`. A listagem é compartilhada entre todos os members da organização (sem filtro por vendedor responsável, conforme definido na seção de Atores).
-- **RF20 - Histórico de Interações:** Espaço de texto livre dentro da negociação para registrar anotações, ligações e detalhes combinados pelo WhatsApp, mantendo a rastreabilidade do atendimento.
+- **RF20 - Histórico de Interações:** Espaço de texto livre dentro da negociação para registrar anotações, ligações e detalhes combinados pelo WhatsApp, mantendo a rastreabilidade do atendimento. _(**Estendido pelo `RF35`** na Sprint 14: cada anotação passou a ser um registro próprio, com autor e data.)_
 - **RF21 - Alerta Visual de Conflito de Agenda (Flexível):** Ao abrir ou editar uma negociação, o sistema verifica se já existem outros eventos salvos ou aprovados na mesma data e exibe um alerta gráfico em destaque na tela ("Atenção: Já existem X eventos nesta data"), sem bloquear o salvamento do registro.
 - **RF22 - Copiar Proposta/Contrato Textual:** O sistema gera um template textual pré-definido com os dados dinâmicos do cliente, valores e pacote escolhido. Disponibiliza um botão de "Copiar Texto" para que o vendedor possa colar diretamente no WhatsApp ou Word. No MVP, o template é fixo (hardcoded) e igual para todas as organizações, apenas com variáveis dinâmicas interpoladas (nome do cliente, valor total, pacote, data do evento); a configuração de template por organização fica fora de escopo.
 
@@ -78,6 +81,28 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 
 - **RF23 - Cronograma Prévio de Pagamentos:** Ao aprovar uma negociação, o sistema permite gerar parcelas financeiras vinculadas (Ex: Entrada + parcelas intermediárias), registrando a data de vencimento e o valor de cada uma.
 - **RF24 - Baixa de Parcelas e Comprovantes:** Permite alterar o status da parcela para "Pago", definir o método de pagamento (PIX, Cartão, Boleto) e anexar o link/arquivo do comprovante.
+
+### Personalização da Página Pública
+
+- **RF25 - Identidade Visual da Página Pública:** O proprietário define a logo, a imagem de capa, a cor de marca e o tema (claro/escuro) da sua página `/{slug}`. A cor vem de uma **paleta curada** — e não de um seletor livre —, garantindo contraste legível em ambos os temas sem depender da escolha do usuário.
+- **RF26 - Layout Selecionável:** O proprietário escolhe entre três layouts pré-definidos (Vitrine, Elegante, Direto), que reorganizam a mesma informação com posturas visuais distintas: guiado por fotos, guiado por tipografia e guiado por conversão. A ordem e o destaque dos pacotes na vitrine também são definidos pelo proprietário.
+- **RF27 - Conteúdo Editável:** Título, subtítulo, texto "sobre o buffet", rótulo do botão de ação, exibição ou não dos preços, e os canais de contato (WhatsApp, telefone, e-mail, Instagram, cidade) exibidos na página. Com os preços desligados, o valor por convidado **não é enviado pela API** — não fica apenas escondido na tela.
+- **RF28 - Galeria de Fotos por Pacote:** Até 10 imagens por pacote, ordenáveis pelo proprietário; a primeira serve de capa na vitrine pública.
+
+### Painel Operacional
+
+- **RF29 - Visão Consolidada do Dia:** A tela inicial do painel responde "o que preciso fazer agora" sem exigir navegação: contagem de negociações por estágio do funil (cada uma levando à lista já filtrada), próximos eventos com data — sinalizando conflito de agenda pela mesma regra do `RF21` —, e, para o proprietário, os totais financeiros e as próximas parcelas a vencer. A navegação exibe um contador de leads aguardando atendimento, para que um lead recém-chegado não fique invisível até alguém abrir a lista. Toda agregação é calculada no banco e escopada por organização (`RNF05`); o bloco financeiro **não é sequer consultado** quando o usuário é `member` (`RNF04`).
+- **RF30 - Checklist de Configuração:** Enquanto houver etapa pendente, o painel exibe um checklist do que falta para o buffet estar pronto para receber clientes (cadastrar pratos, bebidas e serviços, montar um pacote, personalizar a página pública, adicionar fotos e convidar a equipe), cada item com link direto para a tela correspondente. Reaproveita a métrica de progresso do onboarding guiado (`RF00`), que antes era descartada ao entrar no painel. O checklist é dispensável e some sozinho quando tudo está concluído.
+
+- **RF31 - Agenda de Eventos:** Visão mensal em calendário dos eventos da organização (confirmados e em negociação), com o dia selecionável exibindo a lista de eventos daquela data — cliente, pacote, número de convidados e valor. Dias com mais de um evento aparecem destacados como **conflito de agenda**, aplicando a mesma regra do `RF21`: mais de um evento não perdido no mesmo dia UTC. O alerta de conflito dentro da negociação passa a linkar para o dia correspondente na agenda, deixando de ser um aviso sem saída. Negociações **sem data definida** não aparecem no calendário — a tela informa quantas são e leva ao funil, para que não pareçam ter desaparecido.
+
+- **RF35 - Histórico de Interações Datado (evolui o `RF20`):** Cada anotação é um **registro próprio**, com autor e carimbo de tempo, exibido como linha do tempo na negociação. Substitui o campo de texto único, que além de ser a leitura mais fraca do `RF20` ("registrar anotações, ligações e detalhes" descreve registros, não um bloco mutável) era um **defeito de dados**: como o funil é compartilhado entre todos os `member`, dois usuários com a mesma negociação aberta gravavam por cima um do outro — o segundo salvamento apagava a anotação do primeiro, sem aviso. O histórico é *append-only*; a exclusão de um registro é restrita ao proprietário. As anotações escritas sob o `RF20` foram preservadas na migração, identificadas como importadas.
+
+### Comunicação e Acesso
+
+- **RF32 - Notificação Automática de Novo Lead:** Quando o formulário público (`RF18`) gera uma negociação, os proprietários da organização recebem um e-mail com os dados do pedido (contato, data, convidados, pacote e estimativa), um link direto para a negociação no painel e um atalho de WhatsApp para o cliente. O envio é **assíncrono**: a resposta HTTP ao visitante não espera o provedor de e-mail, e uma falha de envio é registrada em log sem afetar a captação do lead. Substitui a exclusão original do escopo.
+- **RF33 - Recuperação de Senha:** O usuário solicita a redefinição informando o e-mail e recebe um link válido por 1 hora para criar uma nova senha. A resposta é sempre neutra ("se este e-mail estiver cadastrado..."), sem confirmar a existência da conta — evita enumeração de usuários. Sem este requisito, esquecer a senha significava perder o acesso definitivamente.
+- **RF34 - Convite de Membro por E-mail:** O convite gerado pelo proprietário (`RF00`) é enviado por e-mail ao endereço convidado, com link de aceite. O link copiável permanece disponível na tela como alternativa — cobre o ambiente de desenvolvimento e eventual falha de entrega.
 
 ---
 
@@ -89,6 +114,9 @@ Desenvolver um sistema de gerenciamento de demandas direcionado para buffets, ce
 - **RNF04 - Controle de Acesso Baseado em Funções (RBAC):** Restrição de endpoints no Nest.js através de guards que validam as roles do Better-Auth, bloqueando requisições financeiras e mutações de dados para quem for `member` (Funcionário).
 - **RNF05 - Isolamento Lógico Multi-tenant:** Toda query operacional de negócio executada pelo Drizzle ORM no Nest.js deve injetar explicitamente o identificador da organização na cláusula `where(eq(table.organizationId, session.activeOrganizationId))`. Para tabelas sem `organizationId` direto (ex: `financial_payments`), o isolamento é garantido via join com a tabela pai (`leads_budgets`).
 - **RNF06 - Proteção Básica Contra Spam no Formulário Público:** Por ser o único endpoint não autenticado do sistema, o formulário de captação (`RF18`) deve contar com uma camada mínima de proteção contra automação (honeypot field e/ou rate limit por IP).
+- **RNF07 - Upload de Imagens Isolado por Organização:** O envio de imagens (`RF25`/`RF28`) usa URL pré-assinada, com o arquivo indo do navegador direto ao bucket S3-compatível — o byte não passa pela API. A chave do objeto é **derivada no servidor** a partir do `organizationId` (`orgs/<orgId>/<escopo>/<uuidv7>.<ext>`), nunca informada pelo cliente; o tipo e o tamanho declarados entram na assinatura, então divergir deles é recusado pelo bucket; e toda URL persistida é validada contra o bucket configurado **e** o prefixo da própria organização, fechando o vetor de apontar um campo de imagem para um host externo.
+- **RNF08 - Feedback e Acessibilidade da Interface:** Toda operação assíncrona do painel deve comunicar seus três estados ao usuário: **carregamento** (esqueleto com o formato do conteúdo, anunciado por região viva `role="status"`), **resultado** (toast de sucesso) e **erro**. O erro de validação deve ser exibido **por campo**, consumindo o mapa `errors` que o `ZodValidationPipe` já devolve — não apenas a mensagem genérica. Ações destrutivas exigem confirmação em **diálogo acessível**, com foco preso no diálogo, foco restaurado ao elemento de origem no fechamento e `role="dialog"`/`aria-modal`; o `confirm()`/`alert()` nativo do navegador não atende (não é estilizável, não é traduzível e bloqueia a thread). Complementa o `RNF02`.
+- **RNF09 - E-mail Transacional com Provedor Plugável:** O envio de e-mail (`RF32`–`RF34`) passa por um adaptador único, com o provedor escolhido por variável de ambiente. Sem chave configurada, um **driver de console** imprime o e-mail — com os links — no terminal da API, de modo que recuperação de senha e convite funcionam ponta a ponta em desenvolvimento sem depender de conta em provedor externo. O pacote de autenticação recebe o adaptador por injeção (porta), permanecendo agnóstico de provedor. **Nenhuma falha de envio pode propagar exceção**: e-mail é efeito colateral, não pode derrubar cadastro, convite ou captação de lead.
 
 ---
 
@@ -264,9 +292,27 @@ export const leadsBudgets = pgTable("leads_budgets", {
   totalValue: numeric("totalValue", { precision: 12, scale: 2 }),
   status: text("status").notNull(),
   lostReason: text("lostReason"),
+  // Legado do RF20: mantida para preservar o histórico anterior à migração
+  // do RF35. A aplicação não escreve mais nesta coluna.
   notes: text("notes"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// RF35: histórico de interações append-only. Sem organizationId — o isolamento
+// vem do join com leads_budgets (RNF05), como em financial_payments.
+export const leadNotes = pgTable("lead_notes", {
+  id: text("id").primaryKey(),
+  budgetId: text("budgetId")
+    .notNull()
+    .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+  authorUserId: text("authorUserId").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  // Snapshot: a autoria sobrevive à remoção do usuário.
+  authorName: text("authorName").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
 export const financialPayments = pgTable("financial_payments", {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Table as TableIcon } from "lucide-react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Columns3, Handshake, Table as TableIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   LEAD_STATUSES,
@@ -10,23 +11,23 @@ import {
   type LeadStatus,
 } from "@buffet/shared";
 import type { Lead, Package } from "@/lib/types";
+import { LEAD_STATUS_STYLE } from "@/lib/lead-status";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { Tabs } from "@/components/ui/tabs";
+import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { SkeletonTable } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { DataTable, type Column } from "@/components/ui/table";
 import { LeadDetailForm } from "@/components/leads/lead-detail";
 import { LeadKanban } from "@/components/leads/lead-kanban";
 
 type Filter = LeadStatus | "all";
 type View = "table" | "kanban";
 
-const STATUS_BADGE: Record<LeadStatus, "default" | "secondary" | "outline" | "muted"> = {
-  novo: "default",
-  em_negociacao: "secondary",
-  formalizando: "secondary",
-  aprovado: "outline",
-  perdido: "muted",
-};
+function isLeadStatus(value: string | null): value is LeadStatus {
+  return value !== null && (LEAD_STATUSES as readonly string[]).includes(value);
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -36,50 +37,124 @@ function formatDate(iso: string | null): string {
     : d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
+/**
+ * `useSearchParams` obriga um boundary de Suspense no App Router — sem ele o
+ * `next build` falha. Os deep links vêm da home e do e-mail de novo lead.
+ */
 export default function LeadsPage() {
+  return (
+    <Suspense
+      fallback={<SkeletonTable rows={6} cols={6} label="Carregando negociações" />}
+    >
+      <LeadsView />
+    </Suspense>
+  );
+}
+
+function LeadsView() {
+  const params = useSearchParams();
+  const statusParam = params.get("status");
+  const openParam = params.get("open");
+
   const [view, setView] = useState<View>("table");
-  const [filter, setFilter] = useState<Filter>("all");
+  // Filtro inicial vindo do deep link (?status=aprovado, vindo da home).
+  const [filter, setFilter] = useState<Filter>(
+    isLeadStatus(statusParam) ? statusParam : "all"
+  );
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // ?open=<id> abre a negociação direto — é o que faz o card da home e o link
+  // do e-mail de novo lead (RF32) caírem na negociação certa.
+  const [openId, setOpenId] = useState<string | null>(openParam);
+
+  // Busca com debounce: o filtro roda no servidor (`?q=`), então disparar a
+  // cada tecla seria uma requisição por caractere.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    const params = new URLSearchParams();
     // O kanban precisa de todos os status; a tabela respeita o filtro ativo.
-    const path =
-      view === "kanban" || filter === "all"
-        ? "/leads"
-        : `/leads?status=${filter}`;
+    if (view === "table" && filter !== "all") params.set("status", filter);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    const query = params.toString();
+
     const [l, p] = await Promise.all([
-      api.get<Lead[]>(path),
+      api.get<Lead[]>(`/leads${query ? `?${query}` : ""}`),
       api.get<Package[]>("/packages?includeInactive=true"),
     ]);
     setLeads(l);
     setPackages(p);
     setLoading(false);
-  }, [view, filter]);
+  }, [view, filter, debouncedSearch]);
 
   useEffect(() => {
     load().catch(() => setLoading(false));
   }, [load]);
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter(
-      (l) =>
-        l.customerName.toLowerCase().includes(q) ||
-        l.customerPhone.includes(q) ||
-        (l.customerEmail?.toLowerCase().includes(q) ?? false)
-    );
-  }, [leads, search]);
+  // A filtragem já veio do servidor; a lista é usada como está.
+  const visible = leads;
 
-  const filters: { key: Filter; label: string }[] = [
+  // Mesmo segmented control do catálogo. Sem contador por aba: a filtragem é do
+  // servidor, então a lista em mãos é só a do filtro ativo — um número aqui
+  // estaria errado em todas as abas menos uma.
+  const filters: TabItem<Filter>[] = [
     { key: "all", label: "Todos" },
     ...LEAD_STATUSES.map((s) => ({ key: s, label: LEAD_STATUS_LABELS[s] })),
   ];
+
+  const columns: Column<Lead>[] = [
+    { key: "customer", header: "Cliente", cell: (l) => l.customerName },
+    { key: "phone", header: "WhatsApp", cell: (l) => l.customerPhone },
+    { key: "date", header: "Data", cell: (l) => formatDate(l.eventDate) },
+    { key: "guests", header: "Convidados", cell: (l) => l.guestCount ?? "—" },
+    {
+      key: "value",
+      header: "Valor",
+      cell: (l) => (l.totalValue ? formatBRL(l.totalValue) : "—"),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (l) => (
+        <Badge variant={LEAD_STATUS_STYLE[l.status].badge}>
+          {LEAD_STATUS_LABELS[l.status]}
+        </Badge>
+      ),
+    },
+  ];
+
+  // Três vazios diferentes, três saídas diferentes — o antigo "Nenhuma
+  // negociação encontrada" não dizia se o funil estava vazio ou se era a busca.
+  const emptyState =
+    search.trim() !== "" ? (
+      <EmptyState
+        icon={Handshake}
+        title="Nenhum resultado para a busca"
+        description="Procuramos por nome, WhatsApp e e-mail."
+        action={{ label: "Limpar busca", onClick: () => setSearch("") }}
+      />
+    ) : filter !== "all" ? (
+      <EmptyState
+        icon={Handshake}
+        title={`Nenhuma negociação em "${LEAD_STATUS_LABELS[filter]}"`}
+        description="Nada neste estágio do funil por enquanto."
+        action={{ label: "Ver todas", onClick: () => setFilter("all") }}
+      />
+    ) : (
+      <EmptyState
+        icon={Handshake}
+        title="Nenhuma negociação ainda"
+        description="Os leads entram sozinhos pela sua página pública: quem pede um orçamento por lá vira uma negociação aqui. Divulgue o link para começar."
+        action={{ label: "Ver minha página pública", href: "/dashboard" }}
+      />
+    );
 
   return (
     <div className="flex flex-col gap-6">
@@ -102,22 +177,12 @@ export default function LeadsPage() {
       </div>
 
       {view === "table" && (
-        <div className="flex flex-wrap gap-1 border-b">
-          {filters.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              aria-pressed={filter === f.key}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                filter === f.key
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          items={filters}
+          value={filter}
+          onChange={setFilter}
+          label="Filtrar negociações por estado"
+        />
       )}
 
       <Input
@@ -131,50 +196,18 @@ export default function LeadsPage() {
       />
 
       {loading ? (
-        <p className="text-muted-foreground">Carregando...</p>
+        <SkeletonTable rows={6} cols={6} label="Carregando negociações" />
       ) : view === "kanban" ? (
         <LeadKanban leads={visible} onOpenLead={setOpenId} onChanged={load} />
-      ) : visible.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Nenhuma negociação encontrada.
-        </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-muted/40 text-left text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 font-medium">Cliente</th>
-                <th className="px-4 py-2 font-medium">WhatsApp</th>
-                <th className="px-4 py-2 font-medium">Data</th>
-                <th className="px-4 py-2 font-medium">Convidados</th>
-                <th className="px-4 py-2 font-medium">Valor</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((l) => (
-                <tr
-                  key={l.id}
-                  onClick={() => setOpenId(l.id)}
-                  className="cursor-pointer border-b last:border-b-0 hover:bg-accent/50"
-                >
-                  <td className="px-4 py-2 font-medium">{l.customerName}</td>
-                  <td className="px-4 py-2">{l.customerPhone}</td>
-                  <td className="px-4 py-2">{formatDate(l.eventDate)}</td>
-                  <td className="px-4 py-2">{l.guestCount ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    {l.totalValue ? formatBRL(l.totalValue) : "—"}
-                  </td>
-                  <td className="px-4 py-2">
-                    <Badge variant={STATUS_BADGE[l.status]}>
-                      {LEAD_STATUS_LABELS[l.status]}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          rows={visible}
+          columns={columns}
+          rowKey={(l) => l.id}
+          caption="Negociações"
+          onRowClick={(l) => setOpenId(l.id)}
+          empty={emptyState}
+        />
       )}
 
       <Modal
@@ -191,6 +224,9 @@ export default function LeadsPage() {
               setOpenId(null);
               load();
             }}
+            // Transição de estado: recarrega a lista mas mantém a negociação
+            // aberta, para o usuário ver o histórico que acabou de gerar.
+            onChanged={load}
             onCancel={() => setOpenId(null)}
           />
         )}

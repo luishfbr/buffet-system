@@ -1,10 +1,30 @@
 import { z } from "zod";
 import {
+  dateAvailabilityStatusSchema,
   itemTypeSchema,
   leadStatusSchema,
   paymentMethodSchema,
+  publicTemplateSchema,
+  publicThemeSchema,
+  brandColorSchema,
+  uploadScopeSchema,
   DISH_CATEGORIES,
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  MAX_PACKAGE_IMAGES,
+  type PublicTemplate,
+  type PublicTheme,
+  type BrandColor,
+  type DateAvailabilityStatus,
+  type LeadStatus,
+  type MemberRole,
 } from "./domain.js";
+import {
+  adjustmentKindSchema,
+  adjustmentModeSchema,
+  pricingTypeSchema,
+  type PricingType,
+} from "./pricing.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
 export const moneySchema = z
@@ -15,6 +35,44 @@ export const moneySchema = z
 // Catalog: Items (dishes / drinks / services) — RF01–RF12
 // ============================================================
 
+/**
+ * Campos de precificação (RF-V2-09). Compartilhados entre create e update, com
+ * as regras condicionais aplicadas por um refine comum — `PER_UNIT_AUTO` sem
+ * `guestsPerUnit` é um item que o motor de cálculo não consegue precificar, e
+ * deixar isso passar transforma um erro de cadastro em erro na proposta.
+ */
+const pricingFields = {
+  pricingType: pricingTypeSchema.optional(),
+  minQty: z.coerce.number().int().min(0).max(9999).nullable().optional(),
+  maxQty: z.coerce.number().int().min(1).max(9999).nullable().optional(),
+  guestsPerUnit: z.coerce.number().int().min(1).max(10000).nullable().optional(),
+};
+
+interface PricingShape {
+  pricingType?: PricingType;
+  minQty?: number | null;
+  maxQty?: number | null;
+  guestsPerUnit?: number | null;
+}
+
+const AUTO_NEEDS_GUESTS_PER_UNIT = {
+  check: (v: PricingShape) =>
+    v.pricingType !== "PER_UNIT_AUTO" || v.guestsPerUnit != null,
+  opts: {
+    message: "Informe quantos convidados cada unidade atende",
+    path: ["guestsPerUnit"],
+  },
+};
+
+const MIN_NOT_ABOVE_MAX = {
+  check: (v: PricingShape) =>
+    v.minQty == null || v.maxQty == null || v.minQty <= v.maxQty,
+  opts: {
+    message: "A quantidade mínima não pode passar da máxima",
+    path: ["maxQty"],
+  },
+};
+
 export const createItemSchema = z
   .object({
     name: z.string().min(1, "Nome obrigatório").max(120),
@@ -22,18 +80,25 @@ export const createItemSchema = z
     category: z.enum(DISH_CATEGORIES).optional(),
     basePrice: moneySchema,
     isActive: z.boolean().optional(),
+    ...pricingFields,
   })
   .refine((v) => v.type === "dish" || v.category === undefined, {
     message: "Categoria só se aplica a pratos",
     path: ["category"],
-  });
+  })
+  .refine(AUTO_NEEDS_GUESTS_PER_UNIT.check, AUTO_NEEDS_GUESTS_PER_UNIT.opts)
+  .refine(MIN_NOT_ABOVE_MAX.check, MIN_NOT_ABOVE_MAX.opts);
 
-export const updateItemSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  category: z.enum(DISH_CATEGORIES).nullable().optional(),
-  basePrice: moneySchema.optional(),
-  isActive: z.boolean().optional(),
-});
+export const updateItemSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    category: z.enum(DISH_CATEGORIES).nullable().optional(),
+    basePrice: moneySchema.optional(),
+    isActive: z.boolean().optional(),
+    ...pricingFields,
+  })
+  .refine(AUTO_NEEDS_GUESTS_PER_UNIT.check, AUTO_NEEDS_GUESTS_PER_UNIT.opts)
+  .refine(MIN_NOT_ABOVE_MAX.check, MIN_NOT_ABOVE_MAX.opts);
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
@@ -48,6 +113,9 @@ export const createPackageSchema = z.object({
   pricePerPerson: moneySchema,
   itemIds: z.array(z.string()).default([]),
   isActive: z.boolean().optional(),
+  // RF26: posição e destaque na vitrine da página pública.
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  isFeatured: z.boolean().optional(),
 });
 
 export const updatePackageSchema = z.object({
@@ -56,10 +124,18 @@ export const updatePackageSchema = z.object({
   pricePerPerson: moneySchema.optional(),
   itemIds: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  isFeatured: z.boolean().optional(),
+});
+
+/** Nova ordem dos pacotes na vitrine pública (RF26) — ids na sequência desejada. */
+export const reorderPackagesSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, "Informe a nova ordem"),
 });
 
 export type CreatePackageInput = z.infer<typeof createPackageSchema>;
 export type UpdatePackageInput = z.infer<typeof updatePackageSchema>;
+export type ReorderPackagesInput = z.infer<typeof reorderPackagesSchema>;
 
 // ============================================================
 // Public onboarding: pre-budget capture (RF18)
@@ -68,7 +144,11 @@ export type UpdatePackageInput = z.infer<typeof updatePackageSchema>;
 export const createPublicLeadSchema = z.object({
   slug: z.string().min(1),
   customerName: z.string().min(1, "Informe seu nome").max(120),
-  customerEmail: z.string().email("E-mail inválido").optional().or(z.literal("")),
+  customerEmail: z
+    .string()
+    .email("E-mail inválido")
+    .optional()
+    .or(z.literal("")),
   customerPhone: z.string().min(8, "Informe um WhatsApp válido").max(20),
   eventDate: z.string().datetime().optional().or(z.literal("")),
   guestCount: z.coerce.number().int().positive().max(100000).optional(),
@@ -85,9 +165,13 @@ export type CreatePublicLeadInput = z.infer<typeof createPublicLeadSchema>;
 
 /**
  * Update a lead/negotiation from the internal panel. Every field is optional
- * (partial update): status transitions (RF19), free-text notes/history (RF20),
- * lost reason, and edits to the customer/event data. When packageId or
+ * (partial update): edits to the customer/event data. When packageId or
  * guestCount change, the server recomputes totalValue.
+ *
+ * **Status e motivo não estão aqui** (RF-V2-02): mudar de estado é uma operação
+ * própria, com transição válida, papel e auditoria — `POST /leads/:id/transitions`.
+ * Deixá-los neste schema mantinha aberto o caminho de gravar qualquer status
+ * direto, que é exatamente o que a v2 fecha.
  */
 export const updateLeadSchema = z.object({
   customerName: z.string().min(1, "Nome obrigatório").max(120).optional(),
@@ -107,12 +191,196 @@ export const updateLeadSchema = z.object({
     .nullable()
     .optional(),
   packageId: z.string().nullable().optional(),
-  status: leadStatusSchema.optional(),
-  notes: z.string().max(5000).nullable().optional(),
-  lostReason: z.string().max(500).nullable().optional(),
 });
 
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
+
+/**
+ * Executar uma transição de estado (RF-V2-02). O `reason` é obrigatório nos
+ * caminhos negativos (RF-V2-03), mas a exigência é **do servidor**, contra a
+ * tabela de transições — o schema não sabe de qual estado a negociação parte.
+ */
+export const transitionLeadSchema = z.object({
+  to: leadStatusSchema,
+  reason: z.string().trim().max(500, "Máximo de 500 caracteres").optional(),
+});
+
+export type TransitionLeadInput = z.infer<typeof transitionLeadSchema>;
+
+/**
+ * Um evento do log de auditoria (RF-V2-04). Imutável: não existe endpoint de
+ * edição ou exclusão para nenhum papel (RNF-V2-05). `actorName` é snapshot, pelo
+ * mesmo motivo do `LeadNoteView.authorName`; o cron grava aqui um rótulo de
+ * sistema em vez de um usuário.
+ */
+// ==========================================
+// Compositor de proposta (RF-V2-09 / RF-V2-10)
+// ==========================================
+
+/**
+ * Uma linha da proposta: **ou** um pacote **ou** um item avulso. O mesmo
+ * invariante do CHECK no banco, afirmado aqui para o erro chegar como validação
+ * de campo em vez de 500 do Postgres.
+ */
+export const proposalLineSchema = z
+  .object({
+    packageId: z.string().nullable().optional(),
+    itemId: z.string().nullable().optional(),
+    /** Só usada em `PER_UNIT`; ignorada nos demais tipos. */
+    quantity: z.coerce.number().int().min(0).max(9999).nullable().optional(),
+  })
+  .refine((v) => Boolean(v.packageId) !== Boolean(v.itemId), {
+    message: "Cada linha deve ser um pacote ou um item, nunca os dois",
+    path: ["itemId"],
+  });
+
+export const proposalAdjustmentSchema = z.object({
+  kind: adjustmentKindSchema,
+  mode: adjustmentModeSchema,
+  value: moneySchema,
+  label: z.string().max(120).nullable().optional(),
+});
+
+/**
+ * Escrita da composição inteira de uma vez (PUT), não item a item.
+ *
+ * O total da proposta é função do conjunto: gravar linha a linha deixaria a
+ * negociação passando por estados intermediários que ninguém pediu, e cada um
+ * deles teria que ser recalculado e exibido.
+ */
+export const putProposalSchema = z.object({
+  lines: z.array(proposalLineSchema).max(50),
+  adjustments: z.array(proposalAdjustmentSchema).max(20),
+});
+
+export type ProposalLineInputDto = z.infer<typeof proposalLineSchema>;
+export type ProposalAdjustmentInput = z.infer<typeof proposalAdjustmentSchema>;
+export type PutProposalInput = z.infer<typeof putProposalSchema>;
+
+/** Uma linha já resolvida e precificada pelo servidor. */
+export interface ProposalLineView {
+  id: string;
+  packageId: string | null;
+  itemId: string | null;
+  /** Snapshot do nome no momento da leitura — o catálogo pode mudar depois. */
+  name: string;
+  pricingType: PricingType;
+  basePrice: string;
+  minQty: number | null;
+  maxQty: number | null;
+  guestsPerUnit: number | null;
+  /** Quantidade efetiva: informada em `PER_UNIT`, derivada nos demais. */
+  quantity: number;
+  subtotal: string;
+  /**
+   * Por que esta linha não pôde ser precificada, se for o caso.
+   *
+   * A leitura da proposta **nunca falha por dado guardado**: uma linha pode
+   * virar inválida depois de salva (o proprietário aperta o `minQty` do item, a
+   * negociação perde o número de convidados) e derrubar a resposta inteira
+   * trancaria o usuário fora da própria proposta, sem tela para consertar. A
+   * linha entra valendo zero e explicando o problema; quem recusa entrada
+   * inválida é o PUT.
+   */
+  error: string | null;
+}
+
+export interface ProposalAdjustmentView extends ProposalAdjustmentInput {
+  id: string;
+  /** Quanto este ajuste moveu o total, em reais. */
+  amount: string;
+}
+
+/**
+ * A proposta em elaboração, já calculada. O servidor é a autoridade sobre o
+ * total: o cliente recalcula com as mesmas funções puras só para não piscar
+ * enquanto o usuário digita.
+ */
+export interface ProposalView {
+  lines: ProposalLineView[];
+  adjustments: ProposalAdjustmentView[];
+  subtotal: string;
+  discountTotal: string;
+  feeTotal: string;
+  total: string;
+  /**
+   * Convidados usados no cálculo. `null` bloqueia os tipos que dependem dele —
+   * a UI usa isto para explicar por que uma linha não tem preço.
+   */
+  guestCount: number | null;
+  /** Composição só é editável em negociação não terminal. */
+  editable: boolean;
+}
+
+// ==========================================
+// Revisões versionadas (RF-V2-11 / RF-V2-12)
+// ==========================================
+
+/** Uma linha congelada da revisão (RF-V2-05). */
+export interface RevisionItemView {
+  id: string;
+  name: string;
+  pricingType: PricingType;
+  basePrice: string;
+  quantity: number;
+  subtotal: string;
+}
+
+export interface RevisionView {
+  id: string;
+  revisionNumber: number;
+  validUntil: string;
+  subtotal: string;
+  totalValue: string;
+  adjustments: ProposalAdjustmentView[];
+  authorName: string;
+  createdAt: string;
+  items: RevisionItemView[];
+  /**
+   * `ativa` é a mais recente numa negociação ainda em `proposta_enviada`;
+   * `expirada` é a ativa que passou da validade; `superada` é qualquer
+   * anterior. Derivado no servidor para as duas telas não discordarem.
+   */
+  state: "ativa" | "expirada" | "superada";
+}
+
+/** RF-V2-07: o proprietário estica ou encurta a validade da proposta ativa. */
+export const updateValidUntilSchema = z.object({
+  validUntil: z.string().datetime("Data de validade inválida"),
+});
+
+export type UpdateValidUntilInput = z.infer<typeof updateValidUntilSchema>;
+
+/** Validade padrão configurável por tenant (RF-V2-07). */
+export const MIN_PROPOSAL_VALIDITY_DAYS = 1;
+export const MAX_PROPOSAL_VALIDITY_DAYS = 30;
+
+export const updateOrgSettingsSchema = z.object({
+  proposalValidityDays: z.coerce
+    .number()
+    .int()
+    .min(MIN_PROPOSAL_VALIDITY_DAYS, "Mínimo de 1 dia")
+    .max(MAX_PROPOSAL_VALIDITY_DAYS, "Máximo de 30 dias"),
+});
+
+export type UpdateOrgSettingsInput = z.infer<typeof updateOrgSettingsSchema>;
+
+export interface LeadStatusLogView {
+  id: string;
+  /**
+   * `string`, e não `LeadStatus`, de propósito: o log é histórico e guarda o
+   * vocabulário vigente na época — a migração da v2 gravou `"formalizando"`, que
+   * não é mais um estado válido. Tipar como o enum atual seria mentira, e por
+   * isso a tabela também não leva CHECK. Ao exibir, caia para o valor cru quando
+   * não houver rótulo.
+   */
+  fromStatus: string;
+  toStatus: string;
+  actorName: string;
+  reason: string | null;
+  /** Carimbo de tempo real — renderizado em horário local, não em UTC. */
+  createdAt: string;
+}
 
 // ============================================================
 // Financial module: payment schedule & settlement (RF23–RF24)
@@ -154,3 +422,424 @@ export const payInstallmentSchema = z.object({
 export type InstallmentInput = z.infer<typeof installmentSchema>;
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
 export type PayInstallmentInput = z.infer<typeof payInstallmentSchema>;
+
+// ============================================================
+// Public page: customization & image upload (RF25–RF28 / RNF07)
+// ============================================================
+
+/**
+ * URL de uma imagem já hospedada no bucket. O formato é validado aqui; que a
+ * URL pertence ao bucket **e ao prefixo da própria organização** é verificado
+ * no servidor (`UploadsService.assertOwnedAssetUrl`) — este schema sozinho não
+ * impede apontar para um host qualquer.
+ */
+export const assetUrlSchema = z
+  .string()
+  .url("Link de imagem inválido")
+  .max(2000)
+  // Defense-in-depth: only http(s) links (blocks javascript:/data: schemes).
+  .refine((u) => /^https?:\/\//i.test(u), "Use um link http(s)");
+
+/**
+ * Campo de texto opcional vindo de formulário. `undefined` = não enviado (o
+ * update parcial não mexe nele); `""` ou `null` = o usuário limpou o campo.
+ */
+const optionalText = (max: number, message?: string) =>
+  z
+    .string()
+    .max(max, message)
+    .nullable()
+    .optional()
+    .transform((v) =>
+      v === undefined ? undefined : v === null ? null : v.trim() || null
+    );
+
+const optionalPhone = (label: string) =>
+  optionalText(20, `${label} muito longo`).refine(
+    (v) => v == null || v.replace(/\D/g, "").length >= 8,
+    `${label} inválido`
+  );
+
+const optionalAssetUrl = z
+  .union([assetUrlSchema, z.literal(""), z.null()])
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v || null));
+
+/** Personalização da página pública `/{slug}` (RF25–RF27). Update parcial. */
+export const updatePageSettingsSchema = z.object({
+  template: publicTemplateSchema.optional(),
+  theme: publicThemeSchema.optional(),
+  brandColor: brandColorSchema.optional(),
+  logoUrl: optionalAssetUrl,
+  coverUrl: optionalAssetUrl,
+  headline: optionalText(120, "Título muito longo"),
+  subheadline: optionalText(200, "Subtítulo muito longo"),
+  about: optionalText(1000, "Texto muito longo"),
+  ctaLabel: optionalText(40, "Rótulo muito longo"),
+  showPrices: z.boolean().optional(),
+  whatsapp: optionalPhone("WhatsApp"),
+  phone: optionalPhone("Telefone"),
+  email: optionalText(160).refine(
+    (v) => v == null || z.string().email().safeParse(v).success,
+    "E-mail inválido"
+  ),
+  // Aceita "@perfil" ou a URL completa; guarda só o nome de usuário.
+  instagram: optionalText(60, "Perfil muito longo").transform((v) =>
+    v == null
+      ? v
+      : v
+          .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+          .replace(/^@+/, "")
+          .replace(/\/+$/, "") || null
+  ),
+  city: optionalText(120, "Cidade muito longa"),
+});
+
+export type UpdatePageSettingsInput = z.infer<typeof updatePageSettingsSchema>;
+
+/** Pedido de URL pré-assinada para upload direto ao bucket (RNF07). */
+export const presignUploadSchema = z.object({
+  scope: uploadScopeSchema,
+  contentType: z.enum(ALLOWED_IMAGE_TYPES, {
+    errorMap: () => ({
+      message: "Formato não suportado. Use JPG, PNG ou WebP.",
+    }),
+  }),
+  size: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_IMAGE_BYTES, "Imagem maior que 5 MB"),
+});
+
+export const deleteAssetSchema = z.object({ url: assetUrlSchema });
+
+export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
+export type DeleteAssetInput = z.infer<typeof deleteAssetSchema>;
+
+/** Galeria de fotos do pacote (RF28). */
+export const addPackageImageSchema = z.object({ url: assetUrlSchema });
+
+export const reorderPackageImagesSchema = z.object({
+  ids: z
+    .array(z.string().min(1))
+    .min(1, "Informe a nova ordem")
+    .max(MAX_PACKAGE_IMAGES),
+});
+
+export type AddPackageImageInput = z.infer<typeof addPackageImageSchema>;
+export type ReorderPackageImagesInput = z.infer<
+  typeof reorderPackageImagesSchema
+>;
+
+// ============================================================
+// Public page: response contract (RF17/RF18 + RF25–RF28)
+// ============================================================
+
+/**
+ * Payload de `GET /public/orgs/:slug` — contrato único entre a API e a página
+ * `/{slug}`. Dinheiro como string decimal, datas em ISO (ver CLAUDE.md).
+ */
+export interface PublicPagePackage {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Ausente quando o buffet optou por não exibir preços (`showPrices: false`). */
+  pricePerPerson: string | null;
+  isFeatured: boolean;
+  images: string[];
+  /** Nomes dos itens inclusos, para o buffet mostrar o que compõe o pacote. */
+  includedItems: string[];
+}
+
+export interface PublicPageSettings {
+  template: PublicTemplate;
+  theme: PublicTheme;
+  brandColor: BrandColor;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  headline: string | null;
+  subheadline: string | null;
+  about: string | null;
+  ctaLabel: string | null;
+  showPrices: boolean;
+  whatsapp: string | null;
+  phone: string | null;
+  email: string | null;
+  instagram: string | null;
+  city: string | null;
+}
+
+export interface PublicPageData {
+  id: string;
+  name: string;
+  slug: string;
+  settings: PublicPageSettings;
+  packages: PublicPagePackage[];
+}
+
+/**
+ * Valores usados enquanto a organização não personalizou nada — a linha em
+ * `org_public_settings` só nasce no primeiro save. Espelha os defaults das
+ * colunas no schema Drizzle.
+ */
+export const DEFAULT_PAGE_SETTINGS: PublicPageSettings = {
+  template: "vitrine",
+  theme: "light",
+  brandColor: "ambar",
+  logoUrl: null,
+  coverUrl: null,
+  headline: null,
+  subheadline: null,
+  about: null,
+  ctaLabel: null,
+  showPrices: true,
+  whatsapp: null,
+  phone: null,
+  email: null,
+  instagram: null,
+  city: null,
+};
+
+/** Textos exibidos quando o buffet não escreveu os seus (RF27). */
+export const PAGE_COPY_FALLBACKS = {
+  subheadline: "Monte seu evento e receba um orçamento na hora.",
+  ctaLabel: "Pedir orçamento",
+} as const;
+
+/**
+ * RF27: com `showPrices: false` o preço nem sai da API. Fica aqui, e não solto
+ * no `PublicService`, porque a prévia do editor aplica a mesma regra sobre o
+ * rascunho em memória — a política de preço tem que ser uma só.
+ */
+export function applyPricePolicy(
+  packages: PublicPagePackage[],
+  showPrices: boolean
+): PublicPagePackage[] {
+  if (showPrices) return packages;
+  return packages.map((pkg) => ({ ...pkg, pricePerPerson: null }));
+}
+
+// ==========================================
+// Histórico de interações (RF35, evolui RF20)
+// ==========================================
+
+export const createLeadNoteSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Escreva a anotação")
+    .max(5000, "Máximo de 5000 caracteres"),
+});
+
+export type CreateLeadNoteInput = z.infer<typeof createLeadNoteSchema>;
+
+/**
+ * Um registro do histórico (RF35). `authorName` é um **snapshot**: se o
+ * funcionário sair da equipe, a autoria da anotação não se perde.
+ */
+export interface LeadNoteView {
+  id: string;
+  body: string;
+  authorName: string;
+  /** Carimbo de tempo real — renderizado em horário local, não em UTC. */
+  createdAt: string;
+}
+
+// ==========================================
+// Disponibilidade de datas (RF-V2-13 a RF-V2-15)
+// ==========================================
+
+/** Uma data com o status declarado pelo proprietário. */
+export interface DateAvailabilityView {
+  date: string;
+  status: DateAvailabilityStatus;
+  /** Observação interna — **ausente** na resposta pública (RF-V2-14). */
+  note?: string | null;
+}
+
+export const upsertDateAvailabilitySchema = z.object({
+  status: dateAvailabilityStatusSchema,
+  note: z.string().max(280).nullable().optional(),
+});
+
+export type UpsertDateAvailabilityInput = z.infer<
+  typeof upsertDateAvailabilitySchema
+>;
+
+// ==========================================
+// Agenda de eventos (RF31)
+// ==========================================
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Janela máxima consultável de uma vez, em dias (~3 meses). */
+export const AGENDA_MAX_RANGE_DAYS = 92;
+
+/** Dias inteiros entre duas datas `YYYY-MM-DD`, em UTC. */
+function daysBetween(from: string, to: string): number {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  return (end - start) / 86_400_000;
+}
+
+export const agendaRangeSchema = z
+  .object({
+    from: z.string().regex(ISO_DATE, "Data inicial inválida"),
+    to: z.string().regex(ISO_DATE, "Data final inválida"),
+    // Query string chega como texto — nada de z.boolean() aqui.
+    includeLost: z.enum(["true", "false"]).optional(),
+  })
+  .refine((v) => v.to >= v.from, {
+    message: "A data final deve ser igual ou posterior à inicial",
+    path: ["to"],
+  })
+  .refine((v) => daysBetween(v.from, v.to) <= AGENDA_MAX_RANGE_DAYS, {
+    message: "Intervalo máximo de 3 meses",
+    path: ["to"],
+  });
+
+export type AgendaRangeInput = z.infer<typeof agendaRangeSchema>;
+
+/**
+ * Um evento na agenda (RF31). A resposta é uma **lista plana**: o agrupamento
+ * por dia e o conflito ("mais de um evento no mesmo dia") são derivados no
+ * cliente. Agrupar no servidor criaria um segundo lugar codificando a regra de
+ * conflito, que já vive no `countDateConflicts` do RF21.
+ */
+export interface AgendaEvent {
+  id: string;
+  customerName: string;
+  eventDate: string;
+  guestCount: number | null;
+  status: LeadStatus;
+  totalValue: string | null;
+  packageName: string | null;
+}
+
+export interface AgendaResponse {
+  events: AgendaEvent[];
+  /**
+   * Negociações sem data definida — não cabem na agenda, mas some-las sem
+   * dizer nada faz o usuário achar que elas desapareceram.
+   */
+  undatedCount: number;
+}
+
+// ==========================================
+// Painel operacional (RF29 / RF30)
+// ==========================================
+
+/** Um evento próximo, já com o aviso de conflito de data resolvido (RF21). */
+export interface DashboardUpcomingEvent {
+  id: string;
+  customerName: string;
+  eventDate: string;
+  guestCount: number | null;
+  status: LeadStatus;
+  /** Há outro evento não perdido no mesmo dia UTC — mesma regra do RF21. */
+  hasConflict: boolean;
+}
+
+/** Uma parcela a vencer, com o cliente já resolvido. Só para `owner` (RNF04). */
+export interface DashboardUpcomingPayment {
+  id: string;
+  budgetId: string;
+  customerName: string;
+  dueDate: string;
+  amount: string;
+  /** Vencida: `dueDate` no passado e ainda pendente. */
+  isOverdue: boolean;
+}
+
+/**
+ * Totais financeiros do painel. **Ausente (`null`) para `member`** — o RNF04
+ * proíbe totalizador de receita para funcionário, e a regra é aplicada no
+ * service: o bloco nem chega a ser consultado.
+ */
+export interface DashboardFinance {
+  receivable: string;
+  received: string;
+  overdueCount: number;
+  nextDue: DashboardUpcomingPayment[];
+}
+
+/** Contagens cruas do catálogo — o percentual é derivado no cliente (RF30). */
+export interface DashboardCatalogCounts {
+  dish: number;
+  drink: number;
+  service: number;
+  packages: number;
+  packagesWithPhotos: number;
+}
+
+/** Resposta de `GET /dashboard/summary` (RF29). */
+export interface DashboardSummary {
+  leads: {
+    byStatus: Record<LeadStatus, number>;
+    total: number;
+    newLast7Days: number;
+  };
+  upcomingEvents: DashboardUpcomingEvent[];
+  catalog: DashboardCatalogCounts;
+  /** A organização já salvou a personalização da página pública (RF25–RF27). */
+  pagePublished: boolean;
+  membersCount: number;
+  finance: DashboardFinance | null;
+}
+
+/** Resposta de `GET /dashboard/badges` — contadores da navegação (RF29). */
+export interface DashboardBadges {
+  newLeads: number;
+  /** `null` para `member` (RNF04). */
+  overduePayments: number | null;
+}
+
+// ==========================================
+// Workspace do usuário (multi-organização)
+// ==========================================
+
+/** Um buffet do qual o usuário participa, com o papel dele nele (RNF04). */
+export interface WorkspaceOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  logo: string | null;
+  role: MemberRole;
+}
+
+/** Convite pendente endereçado ao e-mail do usuário logado (RF34). */
+export interface WorkspaceInvitation {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  role: MemberRole;
+  inviterName: string | null;
+  /** ISO — carimbo de tempo real, renderize em horário local. */
+  expiresAt: string;
+}
+
+/**
+ * Resposta de `GET /me/workspace`. É a **verdade do servidor** sobre onde o
+ * usuário pode entrar: o front decide o destino pós-login a partir daqui, em vez
+ * de confiar no cache do client do Better-Auth (RNF05).
+ */
+export interface Workspace {
+  /**
+   * Quem está logado. Vem daqui, e não de `useSession()`, para o painel ter uma
+   * fonte só — o átomo do client do Better-Auth fica obsoleto após um signOut.
+   */
+  user: { id: string; name: string; email: string };
+  /** `null` quando o usuário ainda não tem nenhum vínculo vivo. */
+  activeOrganizationId: string | null;
+  organizations: WorkspaceOrganization[];
+  invitations: WorkspaceInvitation[];
+}
+
+/** Corpo de `POST /me/active-organization` — troca de buffet no seletor. */
+export const setActiveOrganizationSchema = z.object({
+  organizationId: z.string().min(1, "Informe a organização"),
+});
+export type SetActiveOrganizationInput = z.infer<
+  typeof setActiveOrganizationSchema
+>;

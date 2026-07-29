@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatBRL } from "@buffet/shared";
+import { Lock, Wallet } from "lucide-react";
 import type { FinanceSummary } from "@/lib/types";
 import { useRole } from "@/lib/use-role";
 import {
@@ -13,6 +14,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { SkeletonCards, SkeletonTable } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PayForm } from "@/components/finance/pay-form";
 
 function formatDate(iso: string): string {
@@ -50,12 +53,12 @@ export default function FinancePage() {
   // RNF04: members never see billing totals.
   if (role && !isOwner) {
     return (
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">Financeiro</h1>
-        <p className="text-muted-foreground">
-          Apenas o proprietário tem acesso ao módulo financeiro.
-        </p>
-      </div>
+      <EmptyState
+        icon={Lock}
+        title="Apenas o proprietário acessa o financeiro"
+        description="Valores a receber e cronogramas de pagamento são restritos a quem é proprietário do buffet."
+        action={{ label: "Voltar à visão geral", href: "/dashboard" }}
+      />
     );
   }
 
@@ -69,7 +72,10 @@ export default function FinancePage() {
       </div>
 
       {loading || !summary ? (
-        <p className="text-muted-foreground">Carregando...</p>
+        <>
+          <SkeletonCards count={3} label="Carregando totais" />
+          <SkeletonTable rows={4} cols={4} label="Carregando vencimentos" />
+        </>
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -96,9 +102,15 @@ export default function FinancePage() {
           <div>
             <h2 className="mb-2 text-lg font-semibold">Próximos vencimentos</h2>
             {summary.pending.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhuma parcela pendente.
-              </p>
+              <EmptyState
+                icon={Wallet}
+                title="Nenhuma parcela pendente"
+                description="O cronograma de pagamentos nasce quando você aprova uma negociação e gera as parcelas."
+                action={{
+                  label: "Ver negociações aprovadas",
+                  href: "/dashboard/leads?status=aprovado",
+                }}
+              />
             ) : (
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">

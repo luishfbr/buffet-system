@@ -73,6 +73,24 @@ export function computeBudgetTotal(
   return multiplyMoney(pricePerPerson, guestCount);
 }
 
+/**
+ * Teto de `leads_budgets.totalValue` — `numeric(12,2)`, ou seja 10 dígitos
+ * antes da vírgula.
+ */
+export const MAX_BUDGET_TOTAL_CENTS = 10 ** 12 - 1;
+
+/**
+ * O valor cabe na coluna do banco?
+ *
+ * `pricePerPerson` é `numeric(10,2)` e `guestCount` chega a 100.000, então o
+ * produto pode estourar `numeric(12,2)`. Sem esta checagem, o Postgres recusa o
+ * insert e o formulário público (RF18) devolve 500 — perdendo o lead por um
+ * erro de digitação no número de convidados.
+ */
+export function fitsBudgetTotal(value: string): boolean {
+  return toCents(value) <= MAX_BUDGET_TOTAL_CENTS;
+}
+
 /** Format a money string for pt-BR display, e.g. "150.00" -> "R$ 150,00". */
 export function formatBRL(value: string | number): string {
   const cents = toCents(value);

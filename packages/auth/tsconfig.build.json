@@ -5,5 +5,5 @@
     "declaration": false,
     "declarationMap": false
   },
-  "exclude": ["dist"]
+  "exclude": ["**/*.test.ts", "dist"]
 }

@@ -1,4 +1,9 @@
-import type { ItemType, LeadStatus, PaymentStatus } from "@buffet/shared";
+import type {
+  ItemType,
+  LeadStatus,
+  PaymentStatus,
+  PricingType,
+} from "@buffet/shared";
 
 /** Catalog entities as returned by the API (dates serialized as strings). */
 export interface Item {
@@ -8,6 +13,11 @@ export interface Item {
   type: ItemType;
   category: string | null;
   basePrice: string;
+  /** RF-V2-09: como o `basePrice` vira preço na proposta. */
+  pricingType: PricingType;
+  minQty: number | null;
+  maxQty: number | null;
+  guestsPerUnit: number | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -19,11 +29,23 @@ export interface Package {
   description: string | null;
   pricePerPerson: string;
   isActive: boolean;
+  sortOrder: number;
+  isFeatured: boolean;
+  createdAt: string;
+}
+
+/** Uma foto da galeria do pacote (RF28). */
+export interface PackageImage {
+  id: string;
+  packageId: string;
+  url: string;
+  sortOrder: number;
   createdAt: string;
 }
 
 export interface PackageWithItems extends Package {
   itemIds: string[];
+  images: PackageImage[];
 }
 
 /** A lead/negotiation in the sales funnel (RF19). */
@@ -37,6 +59,8 @@ export interface Lead {
   guestCount: number | null;
   packageId: string | null;
   totalValue: string | null;
+  /** RF-V2-07: validade da proposta ativa (nulo antes do primeiro envio). */
+  validUntil: string | null;
   status: LeadStatus;
   lostReason: string | null;
   notes: string | null;

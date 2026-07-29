@@ -1,19 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
-import {
-  LEAD_STATUSES,
-  LEAD_STATUS_LABELS,
-  formatBRL,
-  type LeadStatus,
-} from "@buffet/shared";
+import Link from "next/link";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
+import { Alert } from "@/components/ui/alert";
+import { formatBRL } from "@buffet/shared";
 import type { LeadDetail, Package } from "@/lib/types";
 import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { Tabs } from "@/components/ui/tabs";
+import { ProposalComposer } from "@/components/leads/proposal-composer";
 import { SchedulePanel } from "@/components/finance/schedule-panel";
+import { LeadTimeline } from "@/components/leads/lead-timeline";
+import { StatusStrip } from "@/components/leads/status-strip";
+import { RevisionHistory } from "@/components/leads/revision-history";
 
 /** Slice an ISO datetime to the `yyyy-MM-dd` a date input expects. */
 function toDateInput(iso: string | null): string {
@@ -24,11 +28,19 @@ export function LeadDetailForm({
   leadId,
   packages,
   onSaved,
+  onChanged,
   onCancel,
 }: {
   leadId: string;
   packages: Package[];
+  /** Salvou os dados e terminou: o pai fecha o modal. */
   onSaved: () => void;
+  /**
+   * Algo mudou mas o trabalho continua — o pai só rebusca a lista. É o caso da
+   * transição de estado: fechar o modal aqui esconderia justamente o histórico
+   * que a mudança acabou de escrever.
+   */
+  onChanged: () => void;
   onCancel: () => void;
 }) {
   const { isOwner } = useRole();
@@ -39,12 +51,18 @@ export function LeadDetailForm({
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
   const [packageId, setPackageId] = useState("");
-  const [status, setStatus] = useState<LeadStatus>("novo");
-  const [lostReason, setLostReason] = useState("");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  /**
+   * Incrementa a cada transição para a linha do tempo rebuscar o log de
+   * auditoria. É um **token**, não uma `key` de remontagem: remontar descartaria
+   * a anotação que o usuário estivesse digitando — perder o texto por clicar em
+   * "Enviar proposta" seria uma armadilha silenciosa.
+   */
+  const [statusLogToken, setStatusLogToken] = useState(0);
+  const [revisionToken, setRevisionToken] = useState(0);
+  const [tab, setTab] = useState<"dados" | "proposta">("dados");
 
   const load = useCallback(async () => {
     const data = await api.get<LeadDetail>(`/leads/${leadId}`);
@@ -55,9 +73,6 @@ export function LeadDetailForm({
     setEventDate(toDateInput(data.eventDate));
     setGuestCount(data.guestCount != null ? String(data.guestCount) : "");
     setPackageId(data.packageId ?? "");
-    setStatus(data.status);
-    setLostReason(data.lostReason ?? "");
-    setNotes(data.notes ?? "");
   }, [leadId]);
 
   useEffect(() => {
@@ -77,13 +92,13 @@ export function LeadDetailForm({
         eventDate: eventDate ? `${eventDate}T00:00:00.000Z` : null,
         guestCount: guestCount ? Number(guestCount) : null,
         packageId: packageId || null,
-        status,
-        lostReason: status === "perdido" ? lostReason || null : null,
-        notes: notes || null,
+        // Status e motivo não passam por aqui (RF-V2-02): mudar de estado é uma
+        // operação própria, na faixa acima, com auditoria. O `updateLeadSchema`
+        // nem aceita mais os campos.
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -103,19 +118,75 @@ export function LeadDetailForm({
   }
 
   if (!lead) {
-    return <p className="text-sm text-muted-foreground">Carregando...</p>;
+    return <SkeletonList rows={4} label="Carregando negociação" />;
   }
 
   return (
     <div className="flex flex-col gap-5">
+    {/* RF-V2-02: a faixa de estado fica FORA do form e acima dele, de propósito.
+        Cada ação dela dispara uma transição na hora — não é um campo que o
+        "Salvar" grava, e não deve parecer um. Também não pode estar dentro do
+        <form>: seus botões submeteriam a negociação. */}
+    <StatusStrip
+      leadId={lead.id}
+      status={lead.status}
+      lostReason={lead.lostReason}
+      validUntil={lead.validUntil}
+      onTransitioned={(updated) => {
+        // Só o `lead` é substituído; os campos do formulário ficam como o
+        // usuário deixou. Uma transição não altera dados do cliente, e um
+        // refetch aqui apagaria uma edição em andamento.
+        setLead(updated);
+        setStatusLogToken((n) => n + 1);
+        // Enviar proposta cria revisão; as demais transições mudam o estado
+        // delas (ativa → superada). Rebuscar sempre é mais simples que
+        // adivinhar quais transições mexem no histórico.
+        setRevisionToken((n) => n + 1);
+        onChanged();
+      }}
+    />
+
+    <Tabs
+      items={[
+        { key: "dados", label: "Dados" },
+        { key: "proposta", label: "Proposta" },
+      ]}
+      value={tab}
+      onChange={setTab}
+      label="Seção da negociação"
+    />
+
+    {tab === "proposta" ? (
+      <ProposalComposer
+        leadId={lead.id}
+        guestCount={lead.guestCount}
+        packages={packages}
+        // Salvar a proposta muda o total: recarrega o cabeçalho e a lista.
+        onSaved={() => {
+          void load();
+          onChanged();
+        }}
+      />
+    ) : (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      {/* RF21: visual overbooking alert — never blocks saving. */}
+      {/* RF21: alerta visual de overbooking — nunca bloqueia o salvamento.
+          Usa os tokens oklch do tema (antes eram cores `amber-*` cruas) e leva
+          à agenda (RF31), em vez de terminar num aviso sem saída. */}
       {lead.conflictCount > 0 && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-          ⚠️ Atenção: já {lead.conflictCount === 1 ? "existe" : "existem"}{" "}
+        <Alert variant="warning" title="Conflito de agenda">
+          Já {lead.conflictCount === 1 ? "existe" : "existem"}{" "}
           {lead.conflictCount}{" "}
-          {lead.conflictCount === 1 ? "evento" : "eventos"} nesta data.
-        </div>
+          {lead.conflictCount === 1 ? "outro evento" : "outros eventos"} nesta
+          data.{" "}
+          {lead.eventDate && (
+            <Link
+              href={`/dashboard/agenda?date=${lead.eventDate.slice(0, 10)}`}
+              className="font-medium text-foreground underline underline-offset-4"
+            >
+              Ver na agenda
+            </Link>
+          )}
+        </Alert>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -182,53 +253,12 @@ export function LeadDetailForm({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="status">Status</Label>
-        <select
-          id="status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as LeadStatus)}
-          className="h-9 rounded-md border bg-transparent px-3 text-sm"
-        >
-          {LEAD_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {LEAD_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {status === "perdido" && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="lostReason">Motivo da perda</Label>
-          <Input
-            id="lostReason"
-            value={lostReason}
-            onChange={(e) => setLostReason(e.target.value)}
-            placeholder="Ex: preço acima do orçamento"
-          />
-        </div>
-      )}
-
-      {/* RF20: free-text interaction history. */}
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Histórico de interações</Label>
-        <textarea
-          id="notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={4}
-          placeholder="Anotações, ligações, detalhes combinados pelo WhatsApp..."
-          className="rounded-md border bg-transparent px-3 py-2 text-sm"
-        />
-      </div>
-
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
         Valor total estimado:{" "}
         <strong>{lead.totalValue ? formatBRL(lead.totalValue) : "—"}</strong>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError error={error} />
 
       <div className="flex flex-wrap justify-between gap-2">
         {/* RF22: copy the textual proposal for WhatsApp/Word. */}
@@ -240,11 +270,23 @@ export function LeadDetailForm({
             Cancelar
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? "Salvando..." : "Salvar"}
+            {saving ? "Salvando…" : "Salvar"}
           </Button>
         </div>
       </div>
     </form>
+    )}
+
+    {/* RF35 + RF-V2-04: histórico de interações e de mudanças de estado, numa
+        linha do tempo só. Fora do form da negociação — ele tem form próprio, e
+        form aninhado é HTML inválido (mesmo motivo do SchedulePanel abaixo). */}
+    <div className="flex flex-col gap-2 border-t pt-4">
+      <LeadTimeline leadId={lead.id} statusLogToken={statusLogToken} />
+    </div>
+
+    <div className="flex flex-col gap-2 border-t pt-4">
+      <RevisionHistory leadId={lead.id} refreshToken={revisionToken} />
+    </div>
 
     {/* RF23/RF24: financial schedule — owner-only (RNF04). Kept outside the
         form so its buttons don't submit the negotiation. Uses the saved status,

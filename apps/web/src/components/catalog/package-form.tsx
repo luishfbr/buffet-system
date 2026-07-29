@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import type { Item, Package, PackageWithItems } from "@/lib/types";
 import { formatBRL } from "@buffet/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { PackageGallery } from "./package-gallery";
 
 export function PackageForm({
   pkg,
@@ -22,9 +25,10 @@ export function PackageForm({
   const [pricePerPerson, setPricePerPerson] = useState(
     pkg?.pricePerPerson ?? ""
   );
+  const [isFeatured, setIsFeatured] = useState(pkg?.isFeatured ?? false);
   const [items, setItems] = useState<Item[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -55,13 +59,14 @@ export function PackageForm({
       description: description || undefined,
       pricePerPerson,
       itemIds: [...selected],
+      isFeatured,
     };
     try {
       if (pkg) await api.patch(`/packages/${pkg.id}`, payload);
       else await api.post("/packages", payload);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao salvar");
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -124,7 +129,27 @@ export function PackageForm({
           ))}
         </div>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+        <span className="flex flex-col">
+          <span className="text-sm font-medium">Destacar na página pública</span>
+          <span className="text-xs text-muted-foreground">
+            O pacote ganha selo e borda na cor da marca. A ordem da vitrine você
+            define em Página pública.
+          </span>
+        </span>
+        <Switch checked={isFeatured} onCheckedChange={setIsFeatured} />
+      </label>
+
+      {/* RF28: a galeria salva na hora, então precisa de um pacote já criado. */}
+      {pkg ? (
+        <PackageGallery packageId={pkg.id} />
+      ) : (
+        <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          Salve o pacote para adicionar fotos.
+        </p>
+      )}
+
+      <FormError error={error} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar

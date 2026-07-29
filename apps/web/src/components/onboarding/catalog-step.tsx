@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import { DISH_CATEGORIES, formatBRL, type ItemType } from "@buffet/shared";
 import type { Item } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ export function CatalogStep({
   const [name, setName] = useState("");
   const [category, setCategory] = useState<string>(DISH_CATEGORIES[0]);
   const [basePrice, setBasePrice] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -58,7 +59,7 @@ export function CatalogStep({
       setBasePrice("");
       nameRef.current?.focus();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao adicionar");
+      setError(err);
     } finally {
       setAdding(false);
     }
@@ -71,7 +72,7 @@ export function CatalogStep({
       await api.del(`/items/${id}`);
       onRemove(id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao remover");
+      setError(err);
     } finally {
       setRemovingId(null);
     }
@@ -145,7 +146,7 @@ export function CatalogStep({
             <Plus className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError error={error} />
       </form>
 
       {/* Lista do que já foi adicionado neste passo. */}

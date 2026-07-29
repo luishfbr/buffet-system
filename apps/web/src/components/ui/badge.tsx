@@ -1,12 +1,14 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+export type BadgeVariant = "default" | "secondary" | "outline" | "muted";
+
 export function Badge({
   className,
   variant = "default",
   ...props
 }: React.HTMLAttributes<HTMLSpanElement> & {
-  variant?: "default" | "secondary" | "outline" | "muted";
+  variant?: BadgeVariant;
 }) {
   const variants = {
     default: "bg-primary text-primary-foreground",

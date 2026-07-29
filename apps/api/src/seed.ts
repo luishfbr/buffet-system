@@ -13,13 +13,22 @@
 import { inArray } from "drizzle-orm";
 import { getDb, schema, generateId } from "@buffet/db";
 import { createAuth } from "@buffet/auth";
-import { computeBudgetTotal, splitInstallments } from "@buffet/shared";
+import {
+  computeBudgetTotal,
+  splitInstallments,
+  type LeadStatus,
+} from "@buffet/shared";
 
 const DEMO_EMAIL = "demo@buffetsystem.com";
 const STAFF_EMAIL = "joana@buffetsystem.com";
 const DEMO_PASSWORD = "demo12345";
 const DEMO_SLUG = "buffet-demonstracao";
 const INVITE_EMAIL = "novo.funcionario@buffetsystem.com";
+
+/** `YYYY-MM-DD` UTC — o formato de `date_availability.date` (RF-V2-13). */
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 /** Midnight UTC, `offset` days from today (negative = past). */
 function day(offset: number): Date {
@@ -38,6 +47,13 @@ async function main() {
     trustedOrigins: (process.env.TRUSTED_ORIGINS ?? "http://localhost:3000")
       .split(",")
       .map((o) => o.trim()),
+    appUrl: process.env.APP_URL ?? "http://localhost:3000",
+    // O seed só cria contas direto pela API do Better-Auth; nenhum fluxo dele
+    // dispara e-mail. Porta silenciosa para não poluir a saída do comando.
+    mail: {
+      sendPasswordReset: async () => {},
+      sendInvitation: async () => {},
+    },
   });
 
   // --- Idempotency: remove any previous demo data ------------------------
@@ -140,11 +156,11 @@ async function main() {
     { name: "Espumante", type: "drink", category: null, basePrice: "45.00", isActive: true },
     { name: "Open bar de drinks", type: "drink", category: null, basePrice: "68.00", isActive: false },
     // Serviços
-    { name: "Garçom (diária)", type: "service", category: null, basePrice: "180.00", isActive: true },
-    { name: "Copeira (diária)", type: "service", category: null, basePrice: "150.00", isActive: true },
+    { name: "Garçom (diária)", type: "service", category: null, basePrice: "180.00", isActive: true, pricingType: "PER_UNIT_AUTO", guestsPerUnit: 20 },
+    { name: "Copeira (diária)", type: "service", category: null, basePrice: "150.00", isActive: true, pricingType: "PER_UNIT_AUTO", guestsPerUnit: 40 },
     { name: "DJ", type: "service", category: null, basePrice: "900.00", isActive: true },
     { name: "Cerimonial", type: "service", category: null, basePrice: "1200.00", isActive: true },
-    { name: "Decoração floral", type: "service", category: null, basePrice: "750.00", isActive: true },
+    { name: "Decoração floral", type: "service", category: null, basePrice: "750.00", isActive: true, pricingType: "PER_UNIT", minQty: 1, maxQty: 20 },
     { name: "Fotografia e vídeo", type: "service", category: null, basePrice: "1800.00", isActive: true },
     { name: "Segurança (diária)", type: "service", category: null, basePrice: "320.00", isActive: false },
   ];
@@ -259,7 +275,7 @@ async function main() {
     customerName: string;
     customerEmail: string | null;
     customerPhone: string;
-    status: string;
+    status: LeadStatus;
     pkg: string | null;
     guests: number | null;
     eventDate: Date | null;
@@ -281,21 +297,28 @@ async function main() {
     { customerName: "Eduardo Lopes", customerEmail: "eduardo.lopes@empresa.com.br", customerPhone: "11991110008", status: "em_negociacao", pkg: "Pacote Corporativo", guests: 200, eventDate: day(48), createdAt: day(-12), notes: "Quer incluir DJ e prolongar o open bar até 1h." },
     { customerName: "Patrícia Gomes", customerEmail: null, customerPhone: "11991110009", status: "em_negociacao", pkg: "Pacote Bronze", guests: 70, eventDate: day(100), createdAt: day(-14) },
 
-    // Formalizando
-    { customerName: "Bianca Lima", customerEmail: "bianca.lima@email.com", customerPhone: "11991110010", status: "formalizando", pkg: "Pacote Ouro", guests: 60, eventDate: day(70), createdAt: day(-18), notes: "Aguardando confirmação do número final de convidados." },
-    { customerName: "Henrique Barros", customerEmail: "henrique.barros@email.com", customerPhone: "11991110011", status: "formalizando", pkg: "Pacote Prata", guests: 110, eventDate: day(58), createdAt: day(-20), notes: "Contrato enviado, aguardando assinatura." },
-    { customerName: "Sofia Ramalho", customerEmail: "sofia.ramalho@empresa.com.br", customerPhone: "11991110012", status: "formalizando", pkg: "Pacote Corporativo", guests: 180, eventDate: day(35), createdAt: day(-22) },
+    // Proposta enviada (RF-V2-01 — substitui o "Formalizando" do MVP)
+    { customerName: "Bianca Lima", customerEmail: "bianca.lima@email.com", customerPhone: "11991110010", status: "proposta_enviada", pkg: "Pacote Ouro", guests: 60, eventDate: day(70), createdAt: day(-18), notes: "Aguardando confirmação do número final de convidados." },
+    { customerName: "Henrique Barros", customerEmail: "henrique.barros@email.com", customerPhone: "11991110011", status: "proposta_enviada", pkg: "Pacote Prata", guests: 110, eventDate: day(58), createdAt: day(-20), notes: "Contrato enviado, aguardando assinatura." },
+    { customerName: "Sofia Ramalho", customerEmail: "sofia.ramalho@empresa.com.br", customerPhone: "11991110012", status: "proposta_enviada", pkg: "Pacote Corporativo", guests: 180, eventDate: day(35), createdAt: day(-22) },
 
     // Aprovados (todos com cronograma de pagamento abaixo)
     { customerName: "Fernanda Rocha", customerEmail: "fernanda.rocha@email.com", customerPhone: "11991110013", status: "aprovado", pkg: "Pacote Ouro", guests: 100, eventDate: day(90), createdAt: day(-30), notes: "Casamento — cerimônia às 17h, festa até 2h." },
     { customerName: "Gustavo Peixoto", customerEmail: "gustavo.peixoto@email.com", customerPhone: "11991110014", status: "aprovado", pkg: "Pacote Prata", guests: 130, eventDate: day(45), createdAt: day(-45) },
     { customerName: "Larissa Fontes", customerEmail: "larissa.fontes@empresa.com.br", customerPhone: "11991110015", status: "aprovado", pkg: "Pacote Corporativo", guests: 160, eventDate: day(20), createdAt: day(-50), notes: "Evento corporativo anual; pagamento via boleto." },
-    { customerName: "Antônio Vieira", customerEmail: null, customerPhone: "11991110016", status: "aprovado", pkg: "Pacote Bronze", guests: 75, eventDate: day(-15), createdAt: day(-70), notes: "Evento já realizado e quitado." },
+
+    // Fechado — evento já realizado e quitado (estado terminal positivo da v2)
+    { customerName: "Antônio Vieira", customerEmail: null, customerPhone: "11991110016", status: "fechado", pkg: "Pacote Bronze", guests: 75, eventDate: day(-15), createdAt: day(-70), notes: "Evento já realizado e quitado." },
 
     // Perdidos
     { customerName: "Carlos Nunes", customerEmail: null, customerPhone: "11991110017", status: "perdido", pkg: "Pacote Prata", guests: 200, eventDate: day(30), createdAt: day(-25), lostReason: "Preço acima do orçamento" },
     { customerName: "Vanessa Duarte", customerEmail: "vanessa.duarte@email.com", customerPhone: "11991110018", status: "perdido", pkg: "Pacote Ouro", guests: 55, eventDate: day(12), createdAt: day(-33), lostReason: "Fechou com outro buffet" },
     { customerName: "Marcelo Pires", customerEmail: null, customerPhone: "11991110019", status: "perdido", pkg: "Pacote Bronze", guests: 90, eventDate: day(-5), createdAt: day(-60), lostReason: "Evento adiado sem nova data" },
+
+    // Encerramentos internos da v2 — exercitam os estados que saem do quadro
+    // e só aparecem pelo filtro da tabela.
+    { customerName: "Débora Castro", customerEmail: "debora.castro@email.com", customerPhone: "11991110020", status: "cancelado", pkg: "Pacote Prata", guests: 60, eventDate: day(80), createdAt: day(-9), lostReason: "Cadastro duplicado — a negociação válida é a de outro telefone" },
+    { customerName: "Thiago Marinho", customerEmail: null, customerPhone: "11991110021", status: "expirado", pkg: "Pacote Ouro", guests: 85, eventDate: day(52), createdAt: day(-28), notes: "Proposta enviada e sem retorno do cliente." },
   ];
 
   const leadIds = new Map<string, string>();
@@ -325,6 +348,72 @@ async function main() {
     leadIds.set(l.customerName, row!.id);
     if (total) leadTotals.set(l.customerName, total);
   }
+
+  /**
+   * Log de auditoria das transições (RF-V2-04). O seed grava direto na tabela em
+   * vez de chamar `LeadsService.transition` — não há contexto Nest aqui, e o
+   * objetivo é só popular a linha do tempo do demo.
+   *
+   * O caminho até cada estado final é explícito, e não derivado da tabela de
+   * transições: interessa que o histórico do demo pareça uma negociação real,
+   * não que ele prove a máquina de estados (isso é `transitions.test.ts`).
+   */
+  // `Record` completo, não `Partial`: o compilador cobra os oito estados, que é
+  // exatamente a garantia que se quer aqui.
+  const STATUS_PATHS: Record<LeadStatus, readonly LeadStatus[]> = {
+    novo: [],
+    em_negociacao: ["novo", "em_negociacao"],
+    proposta_enviada: ["novo", "em_negociacao", "proposta_enviada"],
+    aprovado: ["novo", "em_negociacao", "proposta_enviada", "aprovado"],
+    fechado: ["novo", "em_negociacao", "proposta_enviada", "aprovado", "fechado"],
+    perdido: ["novo", "em_negociacao", "perdido"],
+    cancelado: ["novo", "cancelado"],
+    expirado: ["novo", "em_negociacao", "proposta_enviada", "expirado"],
+  };
+
+  const statusLogRows: (typeof schema.budgetStatusLog.$inferInsert)[] = [];
+  for (const l of leadSeeds) {
+    const path = STATUS_PATHS[l.status];
+    const budgetId = leadIds.get(l.customerName)!;
+    // Espalha os eventos entre a criação e hoje, para a timeline não sair com
+    // tudo no mesmo instante.
+    const spanMs = Date.now() - l.createdAt.getTime();
+    for (let i = 1; i < path.length; i++) {
+      const to = path[i]!;
+      const bySystem = to === "expirado";
+      statusLogRows.push({
+        budgetId,
+        fromStatus: path[i - 1]!,
+        toStatus: to,
+        actorUserId: bySystem ? null : ownerId,
+        actorName: bySystem ? "Sistema" : "Dona Demonstração",
+        reason:
+          to === "perdido" || to === "cancelado"
+            ? (l.lostReason ?? "Encerrada sem conversão")
+            : null,
+        // O laço só roda com path.length >= 2, então o divisor nunca é zero.
+        createdAt: new Date(
+          l.createdAt.getTime() + (spanMs * i) / (path.length - 1)
+        ),
+      });
+    }
+  }
+  if (statusLogRows.length > 0) {
+    await db.insert(schema.budgetStatusLog).values(statusLogRows);
+  }
+
+  /**
+   * Disponibilidade de datas (RF-V2-13). Só as datas configuradas viram linha —
+   * o resto é `disponivel` por omissão, então marcar poucas já basta para o
+   * calendário do portal ficar com cara de calendário de verdade.
+   */
+  await db.insert(schema.dateAvailability).values([
+    { organizationId: orgId, date: iso(day(12)), status: "indisponivel", note: "Buffet fechado — manutenção do salão" },
+    { organizationId: orgId, date: iso(day(13)), status: "indisponivel", note: "Buffet fechado — manutenção do salão" },
+    { organizationId: orgId, date: iso(day(20)), status: "quase_cheio", note: "Já temos o evento da Larissa" },
+    { organizationId: orgId, date: iso(day(30)), status: "quase_cheio" },
+    { organizationId: orgId, date: iso(day(45)), status: "indisponivel", note: "Evento fechado de outro cliente" },
+  ]);
 
   // --- Payment schedules for the approved leads (RF23/RF24) --------------
   // Covers every state the finance screen renders: pago, pendente, vencido,

@@ -1,11 +1,12 @@
 "use client";
 
 import { use, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { authClient, useSession } from "@/lib/auth-client";
+import { switchOrganization } from "@/lib/workspace";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
+import { FormError } from "@/components/ui/form-error";
 
 export default function AcceptInvitePage({
   params,
@@ -13,10 +14,10 @@ export default function AcceptInvitePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const router = useRouter();
   const { data: session, isPending } = useSession();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const next = encodeURIComponent(`/invite/${id}`);
 
   async function handleAccept() {
     setError(null);
@@ -26,13 +27,10 @@ export default function AcceptInvitePage({
         invitationId: id,
       });
       if (res.error) throw new Error(res.error.message);
-      await authClient.organization.setActive({
-        organizationId: res.data!.invitation.organizationId,
-      });
-      router.push("/dashboard");
+      // Ativa o buffet, memoriza a escolha e recarrega o painel inteiro nele.
+      await switchOrganization(res.data!.invitation.organizationId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao aceitar convite");
-    } finally {
       setLoading(false);
     }
   }
@@ -53,14 +51,16 @@ export default function AcceptInvitePage({
       </div>
       <div className="mt-6 flex flex-col gap-4">
         {isPending ? (
-          <p className="text-sm text-muted-foreground">Carregando...</p>
+          <p
+            role="status"
+            aria-live="polite"
+            className="text-sm text-muted-foreground"
+          >
+            Carregando...
+          </p>
         ) : session ? (
           <>
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+            <FormError error={error} />
             <Button
               onClick={handleAccept}
               variant="brand"
@@ -69,18 +69,35 @@ export default function AcceptInvitePage({
             >
               {loading ? "Entrando..." : "Aceitar convite"}
             </Button>
+            {/* Link expirado ou já aceito não tem saída nesta tela — a lista
+                mostra o que ainda vale para este e-mail. */}
+            {error && (
+              <p className="text-sm text-muted-foreground">
+                <Link href="/convites" className="text-brand hover:underline">
+                  Ver meus convites
+                </Link>
+              </p>
+            )}
           </>
         ) : (
+          // `?next=` traz a pessoa de volta a este convite depois de entrar —
+          // sem ele, o link do e-mail se perdia no login.
           <p className="text-sm text-muted-foreground">
             Faça{" "}
-            <Link href="/login" className="text-brand hover:underline">
+            <Link
+              href={`/login?next=${next}`}
+              className="text-brand hover:underline"
+            >
               login
             </Link>{" "}
             ou{" "}
-            <Link href="/signup" className="text-brand hover:underline">
+            <Link
+              href={`/signup?next=${next}`}
+              className="text-brand hover:underline"
+            >
               crie uma conta
             </Link>{" "}
-            com o e-mail convidado e volte a este link para aceitar.
+            com o e-mail convidado para aceitar.
           </p>
         )}
       </div>

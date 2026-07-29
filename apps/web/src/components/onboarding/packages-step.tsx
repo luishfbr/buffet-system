@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { FormError } from "@/components/ui/form-error";
 import { formatBRL } from "@buffet/shared";
 import type { Item, Package } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,7 @@ export function PackagesStep({
   const [name, setName] = useState("");
   const [pricePerPerson, setPricePerPerson] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -64,7 +65,7 @@ export function PackagesStep({
       setSelected(new Set());
       nameRef.current?.focus();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao adicionar");
+      setError(err);
     } finally {
       setAdding(false);
     }
@@ -77,7 +78,7 @@ export function PackagesStep({
       await api.del(`/packages/${id}`);
       onRemove(id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao remover");
+      setError(err);
     } finally {
       setRemovingId(null);
     }
@@ -164,7 +165,7 @@ export function PackagesStep({
             </div>
           </fieldset>
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError error={error} />
       </form>
 
       {hasPackages ? (

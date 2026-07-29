@@ -15,6 +15,62 @@
       "when": 1784673029734,
       "tag": "0001_flippant_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785167639762,
+      "tag": "0002_elite_scourge",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785239397747,
+      "tag": "0003_slim_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785257334866,
+      "tag": "0004_harsh_mongu",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785264620243,
+      "tag": "0005_marvelous_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785326709557,
+      "tag": "0006_lean_starjammers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785327604349,
+      "tag": "0007_high_mach_iv",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785329203968,
+      "tag": "0008_heavy_justice",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785342068792,
+      "tag": "0009_great_eternals",
+      "breakpoints": true
     }
   ]
 }

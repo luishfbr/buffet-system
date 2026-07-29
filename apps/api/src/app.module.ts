@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AppController } from "./app.controller.js";
@@ -7,23 +8,38 @@ import { AuthModule } from "./auth/auth.module.js";
 import { ItemsModule } from "./items/items.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PublicModule } from "./public/public.module.js";
+import { AvailabilityModule } from "./availability/availability.module.js";
 import { LeadsModule } from "./leads/leads.module.js";
+import { ProposalsModule } from "./proposals/proposals.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
+import { UploadsModule } from "./uploads/uploads.module.js";
+import { PageSettingsModule } from "./page-settings/page-settings.module.js";
+import { DashboardModule } from "./dashboard/dashboard.module.js";
+import { MailModule } from "./mail/mail.module.js";
+import { MeModule } from "./me/me.module.js";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     // RNF06: baseline rate limiting (tightened per-route on the public form).
-    ThrottlerModule.forRoot([
-      { name: "default", ttl: 60_000, limit: 100 },
-    ]),
+    ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     DatabaseModule,
+    // Antes do AuthModule: o factory do Better-Auth injeta o MailerService.
+    MailModule,
     AuthModule,
+    MeModule,
     ItemsModule,
     PackagesModule,
     PublicModule,
+    // RF-V2-08: agendador do cron de expiração de propostas.
+    ScheduleModule.forRoot(),
+    AvailabilityModule,
     LeadsModule,
+    ProposalsModule,
     FinanceModule,
+    UploadsModule,
+    PageSettingsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
 })
