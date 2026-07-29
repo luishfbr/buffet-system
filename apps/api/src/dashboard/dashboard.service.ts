@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { schema, type Database } from "@buffet/db";
 import {
   LEAD_STATUSES,
@@ -12,6 +12,7 @@ import {
 } from "@buffet/shared";
 import { DB } from "../database/database.module.js";
 import { scopedWhere } from "../common/tenant.js";
+import { notCancelledOrLost } from "../leads/leads.service.js";
 import { FinanceService } from "../finance/finance.service.js";
 
 /** Início do dia UTC de hoje — mesma semântica de dia do `dayRange` do RF21. */
@@ -135,7 +136,9 @@ export class DashboardService {
         scopedWhere(
           schema.leadsBudgets,
           orgId,
-          ne(schema.leadsBudgets.status, "perdido"),
+          // Exatamente a mesma regra da agenda e do alerta de conflito — por
+          // isso o helper vem de lá, e não reescrito aqui.
+          notCancelledOrLost(),
           gte(schema.leadsBudgets.eventDate, startOfTodayUTC())
         )
       )

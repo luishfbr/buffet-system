@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/api";
 import {
+  hasSchedule,
   splitInstallments,
   formatBRL,
   PAYMENT_METHOD_LABELS,
@@ -121,7 +122,10 @@ export function SchedulePanel({
     }
   }
 
-  if (leadStatus !== "aprovado") {
+  // `hasSchedule`, não `canCreateSchedule`: fechar a negociação não pode
+  // esconder o cronograma que ela já tem. Quem barra a **criação** numa
+  // negociação encerrada é o servidor, com o outro predicado.
+  if (!hasSchedule(leadStatus)) {
     return (
       <p className="text-sm text-muted-foreground">
         Aprove a negociação para gerar o cronograma de pagamentos.

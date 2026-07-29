@@ -112,9 +112,13 @@ export type CreatePublicLeadInput = z.infer<typeof createPublicLeadSchema>;
 
 /**
  * Update a lead/negotiation from the internal panel. Every field is optional
- * (partial update): status transitions (RF19), free-text notes/history (RF20),
- * lost reason, and edits to the customer/event data. When packageId or
+ * (partial update): edits to the customer/event data. When packageId or
  * guestCount change, the server recomputes totalValue.
+ *
+ * **Status e motivo não estão aqui** (RF-V2-02): mudar de estado é uma operação
+ * própria, com transição válida, papel e auditoria — `POST /leads/:id/transitions`.
+ * Deixá-los neste schema mantinha aberto o caminho de gravar qualquer status
+ * direto, que é exatamente o que a v2 fecha.
  */
 export const updateLeadSchema = z.object({
   customerName: z.string().min(1, "Nome obrigatório").max(120).optional(),
@@ -134,12 +138,44 @@ export const updateLeadSchema = z.object({
     .nullable()
     .optional(),
   packageId: z.string().nullable().optional(),
-  status: leadStatusSchema.optional(),
-  notes: z.string().max(5000).nullable().optional(),
-  lostReason: z.string().max(500).nullable().optional(),
 });
 
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
+
+/**
+ * Executar uma transição de estado (RF-V2-02). O `reason` é obrigatório nos
+ * caminhos negativos (RF-V2-03), mas a exigência é **do servidor**, contra a
+ * tabela de transições — o schema não sabe de qual estado a negociação parte.
+ */
+export const transitionLeadSchema = z.object({
+  to: leadStatusSchema,
+  reason: z.string().trim().max(500, "Máximo de 500 caracteres").optional(),
+});
+
+export type TransitionLeadInput = z.infer<typeof transitionLeadSchema>;
+
+/**
+ * Um evento do log de auditoria (RF-V2-04). Imutável: não existe endpoint de
+ * edição ou exclusão para nenhum papel (RNF-V2-05). `actorName` é snapshot, pelo
+ * mesmo motivo do `LeadNoteView.authorName`; o cron grava aqui um rótulo de
+ * sistema em vez de um usuário.
+ */
+export interface LeadStatusLogView {
+  id: string;
+  /**
+   * `string`, e não `LeadStatus`, de propósito: o log é histórico e guarda o
+   * vocabulário vigente na época — a migração da v2 gravou `"formalizando"`, que
+   * não é mais um estado válido. Tipar como o enum atual seria mentira, e por
+   * isso a tabela também não leva CHECK. Ao exibir, caia para o valor cru quando
+   * não houver rótulo.
+   */
+  fromStatus: string;
+  toStatus: string;
+  actorName: string;
+  reason: string | null;
+  /** Carimbo de tempo real — renderizado em horário local, não em UTC. */
+  createdAt: string;
+}
 
 // ============================================================
 // Financial module: payment schedule & settlement (RF23–RF24)

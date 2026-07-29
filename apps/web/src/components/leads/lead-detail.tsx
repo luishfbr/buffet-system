@@ -5,12 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { FormError } from "@/components/ui/form-error";
 import { Alert } from "@/components/ui/alert";
-import {
-  LEAD_STATUSES,
-  LEAD_STATUS_LABELS,
-  formatBRL,
-  type LeadStatus,
-} from "@buffet/shared";
+import { formatBRL } from "@buffet/shared";
 import type { LeadDetail, Package } from "@/lib/types";
 import { useRole } from "@/lib/use-role";
 import { Button } from "@/components/ui/button";
@@ -18,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { SchedulePanel } from "@/components/finance/schedule-panel";
-import { NoteTimeline } from "@/components/leads/note-timeline";
+import { LeadTimeline } from "@/components/leads/lead-timeline";
+import { StatusStrip } from "@/components/leads/status-strip";
 
 /** Slice an ISO datetime to the `yyyy-MM-dd` a date input expects. */
 function toDateInput(iso: string | null): string {
@@ -29,11 +25,19 @@ export function LeadDetailForm({
   leadId,
   packages,
   onSaved,
+  onChanged,
   onCancel,
 }: {
   leadId: string;
   packages: Package[];
+  /** Salvou os dados e terminou: o pai fecha o modal. */
   onSaved: () => void;
+  /**
+   * Algo mudou mas o trabalho continua — o pai só rebusca a lista. É o caso da
+   * transição de estado: fechar o modal aqui esconderia justamente o histórico
+   * que a mudança acabou de escrever.
+   */
+  onChanged: () => void;
   onCancel: () => void;
 }) {
   const { isOwner } = useRole();
@@ -44,11 +48,16 @@ export function LeadDetailForm({
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
   const [packageId, setPackageId] = useState("");
-  const [status, setStatus] = useState<LeadStatus>("novo");
-  const [lostReason, setLostReason] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  /**
+   * Incrementa a cada transição para a linha do tempo rebuscar o log de
+   * auditoria. É um **token**, não uma `key` de remontagem: remontar descartaria
+   * a anotação que o usuário estivesse digitando — perder o texto por clicar em
+   * "Enviar proposta" seria uma armadilha silenciosa.
+   */
+  const [statusLogToken, setStatusLogToken] = useState(0);
 
   const load = useCallback(async () => {
     const data = await api.get<LeadDetail>(`/leads/${leadId}`);
@@ -59,8 +68,6 @@ export function LeadDetailForm({
     setEventDate(toDateInput(data.eventDate));
     setGuestCount(data.guestCount != null ? String(data.guestCount) : "");
     setPackageId(data.packageId ?? "");
-    setStatus(data.status);
-    setLostReason(data.lostReason ?? "");
   }, [leadId]);
 
   useEffect(() => {
@@ -80,11 +87,9 @@ export function LeadDetailForm({
         eventDate: eventDate ? `${eventDate}T00:00:00.000Z` : null,
         guestCount: guestCount ? Number(guestCount) : null,
         packageId: packageId || null,
-        status,
-        lostReason: status === "perdido" ? lostReason || null : null,
-        // `notes` (coluna legada do RF20) não é mais escrita pela UI: o
-        // histórico virou append-only em `lead_notes` (RF35). O valor antigo
-        // fica preservado no banco justamente por não ir no payload.
+        // Status e motivo não passam por aqui (RF-V2-02): mudar de estado é uma
+        // operação própria, na faixa acima, com auditoria. O `updateLeadSchema`
+        // nem aceita mais os campos.
       });
       onSaved();
     } catch (err) {
@@ -113,6 +118,24 @@ export function LeadDetailForm({
 
   return (
     <div className="flex flex-col gap-5">
+    {/* RF-V2-02: a faixa de estado fica FORA do form e acima dele, de propósito.
+        Cada ação dela dispara uma transição na hora — não é um campo que o
+        "Salvar" grava, e não deve parecer um. Também não pode estar dentro do
+        <form>: seus botões submeteriam a negociação. */}
+    <StatusStrip
+      leadId={lead.id}
+      status={lead.status}
+      lostReason={lead.lostReason}
+      onTransitioned={(updated) => {
+        // Só o `lead` é substituído; os campos do formulário ficam como o
+        // usuário deixou. Uma transição não altera dados do cliente, e um
+        // refetch aqui apagaria uma edição em andamento.
+        setLead(updated);
+        setStatusLogToken((n) => n + 1);
+        onChanged();
+      }}
+    />
+
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {/* RF21: alerta visual de overbooking — nunca bloqueia o salvamento.
           Usa os tokens oklch do tema (antes eram cores `amber-*` cruas) e leva
@@ -198,34 +221,6 @@ export function LeadDetailForm({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="status">Status</Label>
-        <select
-          id="status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as LeadStatus)}
-          className="h-9 rounded-md border bg-transparent px-3 text-sm"
-        >
-          {LEAD_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {LEAD_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {status === "perdido" && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="lostReason">Motivo da perda</Label>
-          <Input
-            id="lostReason"
-            value={lostReason}
-            onChange={(e) => setLostReason(e.target.value)}
-            placeholder="Ex: preço acima do orçamento"
-          />
-        </div>
-      )}
-
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
         Valor total estimado:{" "}
         <strong>{lead.totalValue ? formatBRL(lead.totalValue) : "—"}</strong>
@@ -243,18 +238,17 @@ export function LeadDetailForm({
             Cancelar
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? "Salvando..." : "Salvar"}
+            {saving ? "Salvando…" : "Salvar"}
           </Button>
         </div>
       </div>
     </form>
 
-    {/* RF35: histórico de interações. Fora do form da negociação — ele tem
-        form próprio, e form aninhado é HTML inválido (mesmo motivo do
-        SchedulePanel abaixo). Cada anotação é uma linha: dois funcionários
-        podem registrar ao mesmo tempo sem se sobrescrever. */}
+    {/* RF35 + RF-V2-04: histórico de interações e de mudanças de estado, numa
+        linha do tempo só. Fora do form da negociação — ele tem form próprio, e
+        form aninhado é HTML inválido (mesmo motivo do SchedulePanel abaixo). */}
     <div className="flex flex-col gap-2 border-t pt-4">
-      <NoteTimeline leadId={lead.id} />
+      <LeadTimeline leadId={lead.id} statusLogToken={statusLogToken} />
     </div>
 
     {/* RF23/RF24: financial schedule — owner-only (RNF04). Kept outside the

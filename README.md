@@ -58,7 +58,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 2. **Catálogo** (`/dashboard/catalog`): revisa e amplia pratos, bebidas, serviços e pacotes com preço por convidado (RF01–RF16), incluindo até 10 fotos por pacote (RF28).
 3. **Página pública** (`/dashboard/pagina`, só owner): escolhe o layout entre Vitrine, Elegante e Direto (RF26), sobe logo e capa, escolhe a cor da marca e o tema, escreve os próprios textos, ordena e destaca os pacotes da vitrine e cadastra os canais de contato (RF25–RF27).
 4. **Captação pública** (`/{slug}`): a partir do link público exibido no dashboard, o cliente preenche o formulário, vê a estimativa `preço × convidados` e gera um lead (RF17/RF18).
-5. **Funil** (`/dashboard/leads`): move o lead entre status, registra o histórico, vê o alerta de conflito de data e copia a proposta para o WhatsApp (RF19–RF22).
+5. **Funil** (`/dashboard/leads`): avança o lead pelos estados formais da negociação — cada mudança valida a transição, exige motivo nos encerramentos e fica registrada no histórico com autor e data (RF19–RF22, RF-V2-01 a RF-V2-04). Também vê o alerta de conflito de data e copia a proposta para o WhatsApp.
 6. **Financeiro** (`/dashboard/finance`, só owner): ao aprovar, gera o cronograma de parcelas e dá baixa com método + comprovante (RF23/RF24).
 
 ## Scripts
@@ -70,6 +70,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 | `pnpm lint` / `pnpm typecheck` / `pnpm test` | Verificações |
 | `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:studio` | Drizzle Kit |
 | `pnpm db:seed` | Popula dados de demonstração (carrega `.env` via dotenv-cli) |
+| `pnpm --filter @buffet/db validate:status` | Confere a migração de estados da v2 (RNF-V2-06): vocabulário, CHECK e imutabilidade do log |
 
 ## Cobertura de requisitos
 
@@ -80,6 +81,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 | Pacotes de serviço | RF13–RF16 | ✅ |
 | Captação pública de leads | RF17, RF18 | ✅ |
 | Funil de negociações | RF19–RF22, RF35 (histórico datado com autoria) | ✅ |
+| Máquina de estados da negociação | RF-V2-01 (8 estados formais), RF-V2-02 (transições com guards), RF-V2-03 (motivo obrigatório), RF-V2-04 (log de auditoria), RNF-V2-01, RNF-V2-05, RNF-V2-06 | ✅ |
 | Financeiro (parcelas + baixa) | RF23, RF24 | ✅ |
 | Página pública personalizável | RF25–RF28, RNF07 (upload isolado) | ✅ |
 | Painel operacional | RF29 (funil, eventos, vencimentos), RF30 (checklist de configuração) | ✅ |

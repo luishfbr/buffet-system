@@ -13,9 +13,11 @@ import {
   type LeadBudget,
 } from "@buffet/db";
 import {
+  canCreateSchedule,
   sumMoney,
   type CreateScheduleInput,
   type DashboardFinance,
+  type LeadStatus,
   type PayInstallmentInput,
 } from "@buffet/shared";
 import { DB } from "../database/database.module.js";
@@ -73,7 +75,9 @@ export class FinanceService {
     input: CreateScheduleInput
   ): Promise<FinancialPayment[]> {
     const lead = await this.getLeadOwnedOrThrow(orgId, budgetId);
-    if (lead.status !== "aprovado") {
+    // Gerar parcelas é ato sobre negociação viva: `fechado` **não** entra aqui,
+    // ainda que exiba o cronograma que já tem (`hasSchedule`).
+    if (!canCreateSchedule(lead.status as LeadStatus)) {
       throw new BadRequestException(
         "Aprove a negociação antes de gerar o cronograma de pagamentos"
       );

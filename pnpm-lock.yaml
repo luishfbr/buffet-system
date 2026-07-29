@@ -200,6 +200,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@buffet/shared':
+        specifier: workspace:*
+        version: link:../shared
       dotenv-cli:
         specifier: ^11.0.0
         version: 11.0.0

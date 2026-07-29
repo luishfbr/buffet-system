@@ -25,10 +25,12 @@
     "migrate": "dotenv -e ../../.env -- npx drizzle-kit migrate",
     "push": "dotenv -e ../../.env -- npx drizzle-kit push",
     "studio": "dotenv -e ../../.env -- npx drizzle-kit studio",
+    "validate:status": "dotenv -e ../../.env -- node dist/validate-status.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@buffet/shared": "workspace:*",
     "dotenv-cli": "^11.0.0",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1",

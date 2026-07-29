@@ -86,6 +86,24 @@ que preserva as notas do RF20 ao criar `lead_notes` — inclusive gerando **UUID
 temporária em `pg_temp`), porque o contrato de ids vale também dentro da migration. Prefira **manter**
 a coluna antiga como legado a dropá-la: risco sem ganho.
 
+**Migration que muda vocabulário de dados** (v2 em diante) leva três coisas a mais, todas na
+[`0005_marvelous_celestials.sql`](packages/db/drizzle/0005_marvelous_celestials.sql) como precedente:
+
+- **Rastro antes da reescrita.** Grave o evento de auditoria *antes* do `UPDATE`, para o estado de
+  origem ficar registrado — é o que permite a reversão mirar só nas linhas que a migration mexeu.
+- **Reversão à mão** em `packages/db/drizzle/down/<nome>.down.sql` (o drizzle-kit não gera `down`),
+  em transação única, abortando com `RAISE EXCEPTION` se encontrar dado que o esquema antigo não
+  comporta — melhor parar do que inventar um destino.
+- **Script de validação** que roda depois do `db:migrate` e serve de portão de deploy:
+  `pnpm --filter @buffet/db validate:status`. Ele não checa só metadados — **tenta a escrita
+  proibida e espera a exceção**, porque trigger existente e trigger funcionando são coisas
+  diferentes.
+
+⚠️ **Trigger de imutabilidade e `ON DELETE cascade` brigam.** Um `BEFORE DELETE` que sempre levanta
+exceção impede apagar a linha **pai**. A saída, na `0005`: liberar o delete quando o pai já não
+existe (o Postgres apaga o pai primeiro e só então dispara a ação referencial), o que distingue
+"apagar auditoria de um registro vivo" de "o registro inteiro deixou de existir".
+
 Migrations versionadas em `packages/db/drizzle/*.sql` + `meta/_journal.json`. Postgres local via
 `docker compose up -d` (porta 5432); em produção roda no Neon.
 

@@ -12,14 +12,21 @@ import {
 import {
   agendaRangeSchema,
   createLeadNoteSchema,
+  transitionLeadSchema,
   updateLeadSchema,
   LEAD_STATUSES,
   type AgendaRangeInput,
   type CreateLeadNoteInput,
+  type MemberRole,
+  type TransitionLeadInput,
   type UpdateLeadInput,
   type LeadStatus,
 } from "@buffet/shared";
-import { ActiveOrg, CurrentUser } from "../auth/current-user.decorator.js";
+import {
+  ActiveOrg,
+  CurrentRole,
+  CurrentUser,
+} from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/auth.constants.js";
 import type { AuthContext } from "../auth/auth.constants.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
@@ -105,7 +112,39 @@ export class LeadsController {
     await this.leads.removeNote(orgId, id, noteId);
   }
 
-  // RF19/RF20: status transitions, notes/history and customer/event edits.
+  // RF-V2-04: linha do tempo das mudanças de estado. Só leitura, para todo
+  // membro — não há rota de escrita nem de exclusão (RNF-V2-05).
+  @Get(":id/status-log")
+  listStatusLog(@ActiveOrg() orgId: string, @Param("id") id: string) {
+    return this.leads.listStatusLog(orgId, id);
+  }
+
+  /**
+   * RF-V2-02: executa uma transição de estado.
+   *
+   * Sem `@Roles` aqui de propósito: o direito depende do **destino**, não do
+   * endpoint — cancelar é do proprietário, mover para "Em Negociação" é de
+   * qualquer um. O recorte fica no service, contra a tabela de transições, do
+   * mesmo jeito que o `DashboardService` decide o bloco financeiro por papel.
+   */
+  @Post(":id/transitions")
+  transition(
+    @ActiveOrg() orgId: string,
+    @CurrentUser() auth: AuthContext,
+    @CurrentRole() role: MemberRole,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(transitionLeadSchema)) body: TransitionLeadInput
+  ) {
+    return this.leads.transition(
+      orgId,
+      id,
+      body,
+      { userId: auth.user.id, name: auth.user.name },
+      role
+    );
+  }
+
+  // Edita dados do cliente/evento. Status não passa por aqui (RF-V2-02).
   @Patch(":id")
   update(
     @ActiveOrg() orgId: string,

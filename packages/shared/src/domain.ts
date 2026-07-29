@@ -22,23 +22,78 @@ export type ItemType = (typeof ITEM_TYPES)[number];
 export const DISH_CATEGORIES = ["entrada", "principal", "sobremesa"] as const;
 export type DishCategory = (typeof DISH_CATEGORIES)[number];
 
-// --- Lead / negotiation funnel status (RF19) ---
+// --- Lead / negotiation funnel status (RF19, RF-V2-01) ---
+/**
+ * Estados formais da negociação. A ordem é a do funil e é usada tal e qual pelas
+ * abas de filtro e pelo quadro — não reordene sem olhar as duas telas.
+ *
+ * `formalizando` do MVP foi absorvido por `em_negociacao` na migration da v2:
+ * o estado equivalente no novo modelo (`proposta_enviada`) exige revisão ativa e
+ * `validUntil`, que os registros antigos não têm.
+ */
 export const LEAD_STATUSES = [
   "novo",
   "em_negociacao",
-  "formalizando",
+  "proposta_enviada",
   "aprovado",
+  "fechado",
   "perdido",
+  "cancelado",
+  "expirado",
 ] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
 export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   novo: "Novo (Lead)",
   em_negociacao: "Em Negociação",
-  formalizando: "Formalizando",
+  proposta_enviada: "Proposta Enviada",
   aprovado: "Aprovado",
+  fechado: "Fechado",
   perdido: "Perdido",
+  cancelado: "Cancelado",
+  expirado: "Expirado",
 };
+
+/**
+ * Encerramentos sem conversão. Substitui o `status !== "perdido"` que o MVP
+ * espalhou pela agenda, pelo alerta de conflito (RF21) e pelo painel: com oito
+ * estados, "não perdido" deixaria eventos cancelados e expirados contando como
+ * compromisso de agenda.
+ */
+export const NEGATIVE_LEAD_STATUSES = [
+  "perdido",
+  "cancelado",
+  "expirado",
+] as const satisfies readonly LeadStatus[];
+
+export function isNegativeLeadStatus(status: LeadStatus): boolean {
+  return (NEGATIVE_LEAD_STATUSES as readonly LeadStatus[]).includes(status);
+}
+
+/**
+ * Colunas do quadro (RF19) — derivado, não uma terceira lista à mão: é o funil
+ * menos os encerramentos negativos. Eles viram lixeira que só cresce e espremem
+ * as colunas onde o trabalho acontece; seguem acessíveis pelo filtro da tabela.
+ */
+export const LEAD_BOARD_STATUSES: readonly LeadStatus[] = LEAD_STATUSES.filter(
+  (status) => !isNegativeLeadStatus(status)
+);
+
+/**
+ * Cronograma de pagamentos (RF23) — **duas perguntas diferentes**, e confundi-las
+ * foi o que quase deixou a v2 permitir criar cronograma numa negociação já
+ * encerrada:
+ *
+ * - `canCreateSchedule`: gerar parcelas é um ato sobre negociação viva.
+ * - `hasSchedule`: exibir o que já existe continua valendo depois de fechada.
+ */
+export function canCreateSchedule(status: LeadStatus): boolean {
+  return status === "aprovado";
+}
+
+export function hasSchedule(status: LeadStatus): boolean {
+  return status === "aprovado" || status === "fechado";
+}
 
 // --- Financial payment status & methods (RF23, RF24) ---
 export const PAYMENT_STATUSES = ["pendente", "pago"] as const;

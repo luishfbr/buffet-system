@@ -245,7 +245,13 @@ export const leadsBudgets = pgTable(
     guestCount: integer("guestCount"),
     packageId: text("packageId").references(() => packages.id),
     totalValue: numeric("totalValue", { precision: 12, scale: 2 }),
-    // status: 'novo' | 'em_negociacao' | 'formalizando' | 'aprovado' | 'perdido'
+    /**
+     * RF-V2-01: 'novo' | 'em_negociacao' | 'proposta_enviada' | 'aprovado'
+     * | 'fechado' | 'perdido' | 'cancelado' | 'expirado'.
+     *
+     * Continua `text`, mas agora com CHECK no banco (`leads_budgets_status_check`,
+     * migration 0005). Só `LeadsService.transition` escreve aqui.
+     */
     status: text("status").notNull(),
     lostReason: text("lostReason"),
     notes: text("notes"),
@@ -309,6 +315,42 @@ export const leadNotes = pgTable(
   },
   (table) => [
     index("lead_notes_budget_idx").on(table.budgetId, table.createdAt),
+  ]
+);
+
+/**
+ * RF-V2-04: log de auditoria das transições de estado.
+ *
+ * **Append-only, e isso é garantido no banco** (RNF-V2-05): a migration 0005
+ * instala uma trigger `BEFORE UPDATE OR DELETE` que levanta exceção. Não existe
+ * endpoint de escrita além do INSERT da transição, nem para `owner` — e a
+ * ausência de `updatedAt` aqui é intencional, não esquecimento.
+ *
+ * Sem `organizationId`: isolamento pelo join com `leads_budgets` (RNF05), igual
+ * a `lead_notes` e `financial_payments`.
+ */
+export const budgetStatusLog = pgTable(
+  "budget_status_log",
+  {
+    id: text("id").primaryKey().$defaultFn(generateId),
+    budgetId: text("budgetId")
+      .notNull()
+      .references(() => leadsBudgets.id, { onDelete: "cascade" }),
+    fromStatus: text("fromStatus").notNull(),
+    toStatus: text("toStatus").notNull(),
+    // Nulo quando o ator é o sistema (cron de expiração, migração) ou quando o
+    // usuário foi removido depois.
+    actorUserId: text("actorUserId").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    // Snapshot do nome, pelo mesmo motivo de `lead_notes.authorName`.
+    actorName: text("actorName").notNull(),
+    // Obrigatório nos caminhos negativos (RF-V2-03) — a regra é do service.
+    reason: text("reason"),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [
+    index("budget_status_log_budget_idx").on(table.budgetId, table.createdAt),
   ]
 );
 
@@ -399,6 +441,7 @@ export const leadsBudgetsRelations = relations(
     }),
     payments: many(financialPayments),
     notes: many(leadNotes),
+    statusLog: many(budgetStatusLog),
   })
 );
 
@@ -412,6 +455,20 @@ export const leadNotesRelations = relations(leadNotes, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const budgetStatusLogRelations = relations(
+  budgetStatusLog,
+  ({ one }) => ({
+    budget: one(leadsBudgets, {
+      fields: [budgetStatusLog.budgetId],
+      references: [leadsBudgets.id],
+    }),
+    actor: one(user, {
+      fields: [budgetStatusLog.actorUserId],
+      references: [user.id],
+    }),
+  })
+);
 
 export const financialPaymentsRelations = relations(
   financialPayments,
@@ -438,6 +495,8 @@ export type LeadBudget = typeof leadsBudgets.$inferSelect;
 export type NewLeadBudget = typeof leadsBudgets.$inferInsert;
 export type LeadNote = typeof leadNotes.$inferSelect;
 export type NewLeadNote = typeof leadNotes.$inferInsert;
+export type BudgetStatusLog = typeof budgetStatusLog.$inferSelect;
+export type NewBudgetStatusLog = typeof budgetStatusLog.$inferInsert;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
 export type PackageImage = typeof packageImages.$inferSelect;

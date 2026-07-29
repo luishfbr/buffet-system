@@ -185,16 +185,32 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
   self-contained, recebem `onSaved`/`onCancel`, e decidem create-vs-edit pela presença de uma prop
   opcional (`item?`/`pkg?`).
 - **Funil** (`dashboard/leads/` + `components/leads/*`): duas visões alternadas por um `Tabs`
-  (segmented control) **Tabela / Kanban**, ambas com a mesma busca client-side (`useMemo`). A
-  **Tabela** mantém o filtro por status (itera `LEAD_STATUSES`/`LEAD_STATUS_LABELS`); o **Kanban**
-  (`lead-kanban.tsx`, `@dnd-kit/core`) tem uma coluna por status e arrasta o card para mudar o status
-  via `PATCH /leads/:id { status }` (update otimista + `onChanged()`/refetch; reverte em erro). Como
-  o `load()` do kanban busca **todos** os status (`/leads` sem filtro), o filtro por status fica só na
-  Tabela. Arrastar para **"Perdido"** abre um `Modal` pedindo o motivo (`lostReason`) antes de
-  confirmar. Clicar num card abre o mesmo `LeadDetailForm` da Tabela. `LeadDetailForm` mostra o banner
-  de conflito de agenda (`conflictCount`, RF21, não bloqueia — só vem do `GET /leads/:id`), a textarea
-  de notas (RF20), o botão "Copiar proposta" → clipboard (RF22), e embute o `SchedulePanel` do
-  financeiro **se `isOwner`**.
+  (segmented control) **Tabela / Kanban**, ambas com a mesma busca. A **Tabela** mantém o filtro por
+  status (itera `LEAD_STATUSES`); o **Kanban** (`lead-kanban.tsx`, `@dnd-kit/core`) mostra só
+  `LEAD_BOARD_STATUSES` — os cinco estados de trabalho. Clicar num card abre o `LeadDetailForm`.
+
+  **Mudar de estado é um ato, não um campo** (RF-V2-02). O `<select>` de status saiu; quem manda é o
+  `StatusStrip` (`status-strip.tsx`), um bloco **fora e acima do `<form>`** cujos botões disparam
+  `POST /leads/:id/transitions` na hora. Ele não pode parecer campo de formulário: o "Salvar" não o
+  grava e o "Cancelar" não o desfaz. Três regras ao mexer nisso:
+  - **As ações saem de `availableTransitions(status, role)` de `@buffet/shared`** — a mesma tabela
+    que o servidor consulta. O cliente nunca decide sozinho o que é permitido; no máximo esconde o
+    que já sabe que seria recusado.
+  - **Rótulo é verbo** ("Enviar proposta"), não o nome do estado de destino, e alguns mudam conforme
+    a origem. Vocabulário visual e verbal centralizado em [`lib/lead-status.ts`](src/lib/lead-status.ts)
+    (`LEAD_STATUS_STYLE`, `transitionVerb`, `reasonPrompt`, `terminalStatement`), testado em
+    `lead-status.test.ts` — nada de `Record<LeadStatus, ...>` solto por tela.
+  - **Transição com `requiresReason` abre o `ReasonModal`**, que pergunta a coisa certa por destino.
+    No quadro, essas transições **não** viram alvo de drop: interromper um arraste com modal
+    obrigatório é pior que oferecer a ação onde ela cabe.
+
+  Durante o arraste, colunas que a máquina de estados não permite ganham `opacity-40` +
+  `pointer-events-none` — a regra vira algo que se vê antes de tentar. `LeadDetailForm` ainda mostra o
+  banner de conflito de agenda (`conflictCount`, RF21, não bloqueia), o botão "Copiar proposta" →
+  clipboard (RF22), e embute o `SchedulePanel` **se `isOwner`**. O `LeadTimeline` (`lead-timeline.tsx`)
+  intercala anotações (RF35) e mudanças de estado (RF-V2-04) numa linha do tempo só: anotação é
+  cartão, evento de sistema é marca na espinha vertical — e evento de sistema não tem excluir para
+  papel nenhum.
 - **Página pública** (`dashboard/pagina/page.tsx` + `app/[slug]/page.tsx` + `components/public/*`):
   `app/[slug]/page.tsx` só busca o payload (`cache()` do React, compartilhado com `generateMetadata`)
   e entrega ao `PublicPage` — **nenhum layout mora na rota**. `components/public/public-page.tsx` é o
@@ -228,10 +244,14 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
   passa pelo `updatePageSettingsSchema` antes de entrar na prévia, para ela mostrar o texto já
   normalizado. `LeadForm` recebe `preview` e não envia nada; a política de preço (RF27) é aplicada
   pelo `applyPricePolicy` de `@buffet/shared`, o mesmo que a API usa.
-- **Financeiro** (`components/finance/*` + `dashboard/finance/page.tsx`): `SchedulePanel` só habilita
-  em `leadStatus === "aprovado"`, gera parcelas iguais client-side com `splitInstallments(total, n)`,
-  e dá baixa via `PayForm` (`PATCH /finance/payments/:id/pay`). A página Finance mostra KPIs
-  **owner-only** de `/finance/summary`.
+- **Financeiro** (`components/finance/*` + `dashboard/finance/page.tsx`): `SchedulePanel` aparece
+  quando `hasSchedule(leadStatus)` — `aprovado` **ou** `fechado`. São duas perguntas diferentes e
+  ambas vivem em `@buffet/shared`: `canCreateSchedule` (gerar parcelas é ato sobre negociação viva,
+  só `aprovado`, quem barra é o servidor) e `hasSchedule` (exibir o que já existe continua valendo
+  depois de fechada). Não escreva a comparação de status à mão aqui. O painel gera parcelas iguais
+  client-side com `splitInstallments(total, n)` e dá baixa via `PayForm`
+  (`PATCH /finance/payments/:id/pay`). A página Finance mostra KPIs **owner-only** de
+  `/finance/summary`.
 
 ## Estado, config & testes
 

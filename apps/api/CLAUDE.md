@@ -109,6 +109,37 @@ Opt-outs e decorators ([`auth/auth.constants.ts`](src/auth/auth.constants.ts),
   `auth.member!.role`, que virava 500 em vez de 403 quando a associação sumia.
 - `@CurrentUser()` — retorna o `AuthContext` completo.
 
+## Máquina de estados da negociação (RF-V2-01 a RF-V2-04)
+
+`leads_budgets.status` **só é escrito por `LeadsService.transition`**. O `PATCH /leads/:id` não
+aceita mais `status`/`lostReason` — o `updateLeadSchema` nem tem os campos, para não sobrar caminho.
+
+- **A tabela de transições é dado, em `@buffet/shared`** ([`transitions.ts`](../../packages/shared/src/transitions.ts)):
+  `LEAD_TRANSITIONS` diz, por estado de origem, quais destinos existem, quem pode, se exige motivo e
+  quais guards rodam. O front lê a **mesma** tabela para montar botões e liberar colunas do quadro —
+  a regra nunca é reimplementada no cliente. Estados terminais simplesmente não listam saídas.
+- **A decisão é uma função pura exportada**, `assertTransitionAllowed(from, to, role, reason)`, que
+  devolve a regra ou lança. É o que torna a máquina testável sem banco (mesmo caminho do `dayRange`).
+- **RNF04 é por transição, não por rota.** Cancelar é `owner`, avançar é de qualquer um, expirar é só
+  do cron. Um `@Roles` no controller não expressa isso — o direito depende do destino. O cron é
+  modelado como **mais um ator** (`TransitionRole = MemberRole | "system"`, regra `roles: ["system"]`),
+  e não como um flag ao lado da lista de papéis: assim a autorização é um `includes` só, e não existe
+  como escrever "só do sistema mas também do owner". Como `"system"` não é `MemberRole`, o
+  `availableTransitions` que alimenta a UI já exclui essas regras sem filtro extra.
+- **Compare-and-swap no `UPDATE`** (`... AND status = <origem>`): se ninguém foi afetado, outro
+  usuário mudou o estado no meio e a resposta é `409`. Resolve a corrida de dois arrastes no quadro
+  sem coluna de versão.
+- **Tudo em `db.transaction`** (RNF-V2-01): status e log de auditoria caem juntos ou nenhum dos dois.
+- **Guards de pré-condição** ficam num registro `Partial<Record<TransitionGuardKey, ...>>` no service.
+  A chave é declarada na tabela de transições antes do guard existir — ligar um guard novo é uma
+  linha no registro, não uma caçada pelo service.
+- **`budget_status_log` é append-only e o banco garante** (RNF-V2-05): sem rota de escrita, sem
+  `updatedAt`, e uma trigger que recusa UPDATE/DELETE. O log guarda o vocabulário da época (há
+  `'formalizando'` lá) e por isso **não** leva CHECK — tipar `fromStatus` como o enum atual seria
+  mentira.
+- **"Não perdido" virou `NEGATIVE_LEAD_STATUSES`.** Com oito estados, `status <> 'perdido'` deixava
+  cancelado e expirado ocupando a agenda e disparando alerta de conflito. Use o helper, não o literal.
+
 ## Multi-tenancy (RNF05)
 
 **Regra dura: toda query operacional injeta `organizationId`.** Use os helpers de

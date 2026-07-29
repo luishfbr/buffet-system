@@ -11,10 +11,11 @@ import {
   type LeadStatus,
 } from "@buffet/shared";
 import type { Lead, Package } from "@/lib/types";
+import { LEAD_STATUS_STYLE } from "@/lib/lead-status";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { Tabs } from "@/components/ui/tabs";
+import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, type Column } from "@/components/ui/table";
@@ -27,14 +28,6 @@ type View = "table" | "kanban";
 function isLeadStatus(value: string | null): value is LeadStatus {
   return value !== null && (LEAD_STATUSES as readonly string[]).includes(value);
 }
-
-const STATUS_BADGE: Record<LeadStatus, "default" | "secondary" | "outline" | "muted"> = {
-  novo: "default",
-  em_negociacao: "secondary",
-  formalizando: "secondary",
-  aprovado: "outline",
-  perdido: "muted",
-};
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -108,7 +101,10 @@ function LeadsView() {
   // A filtragem já veio do servidor; a lista é usada como está.
   const visible = leads;
 
-  const filters: { key: Filter; label: string }[] = [
+  // Mesmo segmented control do catálogo. Sem contador por aba: a filtragem é do
+  // servidor, então a lista em mãos é só a do filtro ativo — um número aqui
+  // estaria errado em todas as abas menos uma.
+  const filters: TabItem<Filter>[] = [
     { key: "all", label: "Todos" },
     ...LEAD_STATUSES.map((s) => ({ key: s, label: LEAD_STATUS_LABELS[s] })),
   ];
@@ -127,7 +123,7 @@ function LeadsView() {
       key: "status",
       header: "Status",
       cell: (l) => (
-        <Badge variant={STATUS_BADGE[l.status]}>
+        <Badge variant={LEAD_STATUS_STYLE[l.status].badge}>
           {LEAD_STATUS_LABELS[l.status]}
         </Badge>
       ),
@@ -181,22 +177,12 @@ function LeadsView() {
       </div>
 
       {view === "table" && (
-        <div className="flex flex-wrap gap-1 border-b">
-          {filters.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              aria-pressed={filter === f.key}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                filter === f.key
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          items={filters}
+          value={filter}
+          onChange={setFilter}
+          label="Filtrar negociações por estado"
+        />
       )}
 
       <Input
@@ -238,6 +224,9 @@ function LeadsView() {
               setOpenId(null);
               load();
             }}
+            // Transição de estado: recarrega a lista mas mantém a negociação
+            // aberta, para o usuário ver o histórico que acabou de gerar.
+            onChanged={load}
             onCancel={() => setOpenId(null)}
           />
         )}

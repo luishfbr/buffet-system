@@ -119,9 +119,9 @@ export default function DashboardPage() {
                 href="/dashboard/leads?status=em_negociacao"
               />
               <StatCard
-                label={LEAD_STATUS_LABELS.formalizando}
-                value={summary.leads.byStatus.formalizando}
-                href="/dashboard/leads?status=formalizando"
+                label={LEAD_STATUS_LABELS.proposta_enviada}
+                value={summary.leads.byStatus.proposta_enviada}
+                href="/dashboard/leads?status=proposta_enviada"
               />
               <StatCard
                 label={LEAD_STATUS_LABELS.aprovado}
