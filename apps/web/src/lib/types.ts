@@ -1,4 +1,9 @@
-import type { ItemType, LeadStatus, PaymentStatus } from "@buffet/shared";
+import type {
+  ItemType,
+  LeadStatus,
+  PaymentStatus,
+  PricingType,
+} from "@buffet/shared";
 
 /** Catalog entities as returned by the API (dates serialized as strings). */
 export interface Item {
@@ -8,6 +13,11 @@ export interface Item {
   type: ItemType;
   category: string | null;
   basePrice: string;
+  /** RF-V2-09: como o `basePrice` vira preço na proposta. */
+  pricingType: PricingType;
+  minQty: number | null;
+  maxQty: number | null;
+  guestsPerUnit: number | null;
   isActive: boolean;
   createdAt: string;
 }

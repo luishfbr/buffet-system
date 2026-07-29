@@ -151,11 +151,11 @@ async function main() {
     { name: "Espumante", type: "drink", category: null, basePrice: "45.00", isActive: true },
     { name: "Open bar de drinks", type: "drink", category: null, basePrice: "68.00", isActive: false },
     // Serviços
-    { name: "Garçom (diária)", type: "service", category: null, basePrice: "180.00", isActive: true },
-    { name: "Copeira (diária)", type: "service", category: null, basePrice: "150.00", isActive: true },
+    { name: "Garçom (diária)", type: "service", category: null, basePrice: "180.00", isActive: true, pricingType: "PER_UNIT_AUTO", guestsPerUnit: 20 },
+    { name: "Copeira (diária)", type: "service", category: null, basePrice: "150.00", isActive: true, pricingType: "PER_UNIT_AUTO", guestsPerUnit: 40 },
     { name: "DJ", type: "service", category: null, basePrice: "900.00", isActive: true },
     { name: "Cerimonial", type: "service", category: null, basePrice: "1200.00", isActive: true },
-    { name: "Decoração floral", type: "service", category: null, basePrice: "750.00", isActive: true },
+    { name: "Decoração floral", type: "service", category: null, basePrice: "750.00", isActive: true, pricingType: "PER_UNIT", minQty: 1, maxQty: 20 },
     { name: "Fotografia e vídeo", type: "service", category: null, basePrice: "1800.00", isActive: true },
     { name: "Segurança (diária)", type: "service", category: null, basePrice: "320.00", isActive: false },
   ];

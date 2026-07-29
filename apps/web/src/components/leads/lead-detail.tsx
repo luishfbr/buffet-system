@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SkeletonList } from "@/components/ui/skeleton";
+import { Tabs } from "@/components/ui/tabs";
+import { ProposalComposer } from "@/components/leads/proposal-composer";
 import { SchedulePanel } from "@/components/finance/schedule-panel";
 import { LeadTimeline } from "@/components/leads/lead-timeline";
 import { StatusStrip } from "@/components/leads/status-strip";
@@ -58,6 +60,7 @@ export function LeadDetailForm({
    * "Enviar proposta" seria uma armadilha silenciosa.
    */
   const [statusLogToken, setStatusLogToken] = useState(0);
+  const [tab, setTab] = useState<"dados" | "proposta">("dados");
 
   const load = useCallback(async () => {
     const data = await api.get<LeadDetail>(`/leads/${leadId}`);
@@ -136,6 +139,28 @@ export function LeadDetailForm({
       }}
     />
 
+    <Tabs
+      items={[
+        { key: "dados", label: "Dados" },
+        { key: "proposta", label: "Proposta" },
+      ]}
+      value={tab}
+      onChange={setTab}
+      label="Seção da negociação"
+    />
+
+    {tab === "proposta" ? (
+      <ProposalComposer
+        leadId={lead.id}
+        guestCount={lead.guestCount}
+        packages={packages}
+        // Salvar a proposta muda o total: recarrega o cabeçalho e a lista.
+        onSaved={() => {
+          void load();
+          onChanged();
+        }}
+      />
+    ) : (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {/* RF21: alerta visual de overbooking — nunca bloqueia o salvamento.
           Usa os tokens oklch do tema (antes eram cores `amber-*` cruas) e leva
@@ -243,6 +268,7 @@ export function LeadDetailForm({
         </div>
       </div>
     </form>
+    )}
 
     {/* RF35 + RF-V2-04: histórico de interações e de mudanças de estado, numa
         linha do tempo só. Fora do form da negociação — ele tem form próprio, e

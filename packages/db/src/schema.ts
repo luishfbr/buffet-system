@@ -352,8 +352,17 @@ export const budgetLineItems = pgTable(
     budgetId: text("budgetId")
       .notNull()
       .references(() => leadsBudgets.id, { onDelete: "cascade" }),
-    packageId: text("packageId").references(() => packages.id),
-    itemId: text("itemId").references(() => items.id),
+    /**
+     * `cascade` aqui é sobre a **organização inteira sumindo**, não sobre
+     * excluir um item do catálogo: esse caminho é bloqueado pelo service, com
+     * mensagem de "inative em vez de excluir". Sem a cascata, apagar um buffet
+     * falhava com erro de FK, porque o Postgres não garante ordem entre os
+     * ramos de uma mesma cascata.
+     */
+    packageId: text("packageId").references(() => packages.id, {
+      onDelete: "cascade",
+    }),
+    itemId: text("itemId").references(() => items.id, { onDelete: "cascade" }),
     /** Só faz sentido em `PER_UNIT`; nos demais a quantidade é derivada. */
     quantity: integer("quantity"),
     sortOrder: integer("sortOrder").notNull().default(0),

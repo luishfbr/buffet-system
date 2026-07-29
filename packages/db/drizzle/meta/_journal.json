@@ -50,6 +50,13 @@
       "when": 1785326709557,
       "tag": "0006_lean_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785327604349,
+      "tag": "0007_high_mach_iv",
+      "breakpoints": true
     }
   ]
 }
