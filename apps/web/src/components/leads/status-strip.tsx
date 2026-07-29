@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { Lock } from "lucide-react";
+import { Clock, Lock } from "lucide-react";
 import {
   availableTransitions,
   isNegativeLeadStatus,
@@ -17,6 +17,8 @@ import {
   statusLabel,
   terminalStatement,
   transitionVerb,
+  validityLabel,
+  validityStatus,
 } from "@/lib/lead-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,11 +47,14 @@ export function StatusStrip({
   leadId,
   status,
   lostReason,
+  validUntil,
   onTransitioned,
 }: {
   leadId: string;
   status: LeadStatus;
   lostReason: string | null;
+  /** RF-V2-07: validade da proposta ativa, quando há uma. */
+  validUntil: string | null;
   /** Recebe a negociação já atualizada — o pai não precisa rebuscar. */
   onTransitioned: (lead: LeadDetail) => void;
 }) {
@@ -63,6 +68,10 @@ export function StatusStrip({
   // sem botões por um instante do que oferecer um que o servidor vai recusar.
   const transitions = role ? availableTransitions(status, role) : [];
   const terminal = isTerminalLeadStatus(status);
+  // Só faz sentido com proposta no ar: em outros estados o campo é resíduo de
+  // um envio anterior e mostrá-lo sugeriria um prazo que não está correndo.
+  const validity =
+    status === "proposta_enviada" ? validityStatus(validUntil) : null;
 
   async function run(to: LeadStatus, reason?: string) {
     setRunning(to);
@@ -100,11 +109,22 @@ export function StatusStrip({
             {statusLabel(status)}
           </h3>
         </div>
-        {terminal && (
+        {terminal ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Lock className="size-3" aria-hidden />
             Estado final
           </span>
+        ) : (
+          validity && (
+            <span
+              className={`inline-flex items-center gap-1 text-xs ${
+                validity.urgent ? "font-medium text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              <Clock className="size-3" aria-hidden />
+              {validityLabel(validUntil)}
+            </span>
+          )
         )}
       </div>
 

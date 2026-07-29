@@ -59,6 +59,8 @@ export interface Lead {
   guestCount: number | null;
   packageId: string | null;
   totalValue: string | null;
+  /** RF-V2-07: validade da proposta ativa (nulo antes do primeiro envio). */
+  validUntil: string | null;
   status: LeadStatus;
   lostReason: string | null;
   notes: string | null;

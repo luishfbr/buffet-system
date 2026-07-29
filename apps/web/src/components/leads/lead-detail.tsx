@@ -17,6 +17,7 @@ import { ProposalComposer } from "@/components/leads/proposal-composer";
 import { SchedulePanel } from "@/components/finance/schedule-panel";
 import { LeadTimeline } from "@/components/leads/lead-timeline";
 import { StatusStrip } from "@/components/leads/status-strip";
+import { RevisionHistory } from "@/components/leads/revision-history";
 
 /** Slice an ISO datetime to the `yyyy-MM-dd` a date input expects. */
 function toDateInput(iso: string | null): string {
@@ -60,6 +61,7 @@ export function LeadDetailForm({
    * "Enviar proposta" seria uma armadilha silenciosa.
    */
   const [statusLogToken, setStatusLogToken] = useState(0);
+  const [revisionToken, setRevisionToken] = useState(0);
   const [tab, setTab] = useState<"dados" | "proposta">("dados");
 
   const load = useCallback(async () => {
@@ -129,12 +131,17 @@ export function LeadDetailForm({
       leadId={lead.id}
       status={lead.status}
       lostReason={lead.lostReason}
+      validUntil={lead.validUntil}
       onTransitioned={(updated) => {
         // Só o `lead` é substituído; os campos do formulário ficam como o
         // usuário deixou. Uma transição não altera dados do cliente, e um
         // refetch aqui apagaria uma edição em andamento.
         setLead(updated);
         setStatusLogToken((n) => n + 1);
+        // Enviar proposta cria revisão; as demais transições mudam o estado
+        // delas (ativa → superada). Rebuscar sempre é mais simples que
+        // adivinhar quais transições mexem no histórico.
+        setRevisionToken((n) => n + 1);
         onChanged();
       }}
     />
@@ -275,6 +282,10 @@ export function LeadDetailForm({
         form aninhado é HTML inválido (mesmo motivo do SchedulePanel abaixo). */}
     <div className="flex flex-col gap-2 border-t pt-4">
       <LeadTimeline leadId={lead.id} statusLogToken={statusLogToken} />
+    </div>
+
+    <div className="flex flex-col gap-2 border-t pt-4">
+      <RevisionHistory leadId={lead.id} refreshToken={revisionToken} />
     </div>
 
     {/* RF23/RF24: financial schedule — owner-only (RNF04). Kept outside the

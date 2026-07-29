@@ -6,6 +6,8 @@ import {
   statusLabel,
   terminalStatement,
   transitionVerb,
+  validityLabel,
+  validityStatus,
 } from "./lead-status";
 
 describe("LEAD_STATUS_STYLE", () => {
@@ -117,5 +119,36 @@ describe("terminalStatement", () => {
     ] as const satisfies readonly LeadStatus[]) {
       expect(terminalStatement(status)).toBe("");
     }
+  });
+});
+
+describe("validityStatus / validityLabel (RF-V2-07)", () => {
+  const inDays = (d: number) =>
+    new Date(Date.now() + d * 86_400_000).toISOString();
+
+  it("marca urgente abaixo de 2 dias, e só abaixo", () => {
+    expect(validityStatus(inDays(3))?.urgent).toBe(false);
+    // 2 dias exatos ainda não é urgente; 1,9 é.
+    expect(validityStatus(inDays(1.9))?.urgent).toBe(true);
+  });
+
+  it("reconhece vencida", () => {
+    expect(validityStatus(inDays(-1))?.expired).toBe(true);
+    expect(validityLabel(inDays(-1))).toBe("Proposta vencida");
+  });
+
+  /**
+   * `validUntil` é um instante, não uma data: contar em dias corridos até ele
+   * evita dizer "vence em 1 dia" para algo que expira em 20 minutos.
+   */
+  it("conta dias corridos até o instante, sem arredondar para cima", () => {
+    expect(validityLabel(inDays(0.5))).toBe("Vence hoje");
+    expect(validityLabel(inDays(1.2))).toBe("Vence amanhã");
+    expect(validityLabel(inDays(6.9))).toBe("Vence em 6 dias");
+  });
+
+  it("sem validade não produz rótulo", () => {
+    expect(validityStatus(null)).toBeNull();
+    expect(validityLabel(null)).toBe("");
   });
 });

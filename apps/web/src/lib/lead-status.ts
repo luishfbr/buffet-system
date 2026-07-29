@@ -192,3 +192,32 @@ export function terminalStatement(status: LeadStatus): string {
       return "";
   }
 }
+
+/**
+ * Quanto falta para a proposta vencer (RF-V2-07).
+ *
+ * Dias **corridos até o instante**, não até a meia-noite: `validUntil` é um
+ * carimbo real (a proposta vence na hora em que foi enviada, N dias depois), e
+ * arredondar para o dia mostraria "1 dia" para algo que expira em 20 minutos.
+ * `urgent` a partir de menos de 2 dias, como pede o requisito.
+ */
+export function validityStatus(validUntil: string | null): {
+  days: number;
+  urgent: boolean;
+  expired: boolean;
+} | null {
+  if (!validUntil) return null;
+  const ms = new Date(validUntil).getTime() - Date.now();
+  const days = Math.floor(ms / 86_400_000);
+  return { days, urgent: ms < 2 * 86_400_000, expired: ms <= 0 };
+}
+
+/** Frase curta da validade, para o badge. */
+export function validityLabel(validUntil: string | null): string {
+  const v = validityStatus(validUntil);
+  if (!v) return "";
+  if (v.expired) return "Proposta vencida";
+  if (v.days === 0) return "Vence hoje";
+  if (v.days === 1) return "Vence amanhã";
+  return `Vence em ${v.days} dias`;
+}
