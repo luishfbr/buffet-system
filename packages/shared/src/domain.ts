@@ -113,6 +113,35 @@ export function hasSchedule(status: LeadStatus): boolean {
   return status === "aprovado" || status === "fechado";
 }
 
+// --- Disponibilidade de datas (RF-V2-13) ---
+export const DATE_AVAILABILITY_STATUSES = [
+  "disponivel",
+  "quase_cheio",
+  "indisponivel",
+] as const;
+export type DateAvailabilityStatus =
+  (typeof DATE_AVAILABILITY_STATUSES)[number];
+
+export const DATE_AVAILABILITY_LABELS: Record<DateAvailabilityStatus, string> = {
+  disponivel: "Disponível",
+  quase_cheio: "Quase cheio",
+  indisponivel: "Indisponível",
+};
+
+export const DATE_AVAILABILITY_HINTS: Record<DateAvailabilityStatus, string> = {
+  disponivel: "Data livre para novos orçamentos.",
+  quase_cheio: "Já há evento nesta data, mas ainda cabe mais um.",
+  indisponivel: "Data bloqueada. O cliente ainda consegue pedir orçamento.",
+};
+
+/** Estado padrão de qualquer data não configurada (RF-V2-13). */
+export const DEFAULT_DATE_AVAILABILITY: DateAvailabilityStatus = "disponivel";
+
+/** Janela do calendário no portal público (RF-V2-14). */
+export const PUBLIC_AVAILABILITY_DAYS = 60;
+
+export const dateAvailabilityStatusSchema = z.enum(DATE_AVAILABILITY_STATUSES);
+
 // --- Financial payment status & methods (RF23, RF24) ---
 export const PAYMENT_STATUSES = ["pendente", "pago"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];

@@ -338,6 +338,33 @@ export const leadNotes = pgTable(
 );
 
 /**
+ * RF-V2-13: disponibilidade declarada por data.
+ *
+ * `date` é **texto `YYYY-MM-DD`**, não `timestamp`: aqui não existe instante, só
+ * o dia do calendário. Guardar como data-sem-hora à meia-noite UTC funcionaria,
+ * mas convidaria de volta a armadilha de fuso que o repo já paga caro em
+ * `eventDate` — com texto, `2026-08-15` é `2026-08-15` em qualquer lugar.
+ *
+ * Só as datas **configuradas** têm linha; o resto é `disponivel` por omissão.
+ * Guardar todas seria escrever o calendário inteiro para dizer "nada mudou".
+ */
+export const dateAvailability = pgTable(
+  "date_availability",
+  {
+    organizationId: text("organizationId")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    // status: 'disponivel' | 'quase_cheio' | 'indisponivel'
+    status: text("status").notNull().default("disponivel"),
+    /** Observação **interna** — nunca sai no endpoint público. */
+    note: text("note"),
+    updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.organizationId, table.date] })]
+);
+
+/**
  * RF-V2-07: configuração operacional do tenant.
  *
  * Tabela própria, e não colunas em `organization`, pelo mesmo motivo de
@@ -728,6 +755,8 @@ export type NewBudgetRevision = typeof budgetRevisions.$inferInsert;
 export type BudgetProposalItem = typeof budgetProposalItems.$inferSelect;
 export type NewBudgetProposalItem = typeof budgetProposalItems.$inferInsert;
 export type OrgSettings = typeof orgSettings.$inferSelect;
+export type DateAvailability = typeof dateAvailability.$inferSelect;
+export type NewDateAvailability = typeof dateAvailability.$inferInsert;
 export type FinancialPayment = typeof financialPayments.$inferSelect;
 export type NewFinancialPayment = typeof financialPayments.$inferInsert;
 export type PackageImage = typeof packageImages.$inferSelect;

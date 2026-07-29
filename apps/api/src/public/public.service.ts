@@ -43,6 +43,23 @@ export class PublicService {
   }
 
   /**
+   * Só o id da organização, a partir do slug (RF-V2-14).
+   *
+   * O calendário do portal não precisa do payload da página inteira, e montá-lo
+   * para descartar tudo menos o id custaria vários joins numa rota anônima que
+   * qualquer visitante dispara.
+   */
+  async resolveOrgIdBySlug(slug: string): Promise<string> {
+    const [org] = await this.db
+      .select({ id: schema.organization.id })
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) throw new NotFoundException("Buffet não encontrado");
+    return org.id;
+  }
+
+  /**
    * A mesma página, resolvida pela organização da sessão e **sempre com preço**
    * — é o que alimenta a prévia do editor (RF25–RF27), onde ligar e desligar
    * "mostrar preços" precisa refletir na hora, sem ida ao banco.

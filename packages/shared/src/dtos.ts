@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  dateAvailabilityStatusSchema,
   itemTypeSchema,
   leadStatusSchema,
   paymentMethodSchema,
@@ -14,6 +15,7 @@ import {
   type PublicTemplate,
   type PublicTheme,
   type BrandColor,
+  type DateAvailabilityStatus,
   type LeadStatus,
   type MemberRole,
 } from "./domain.js";
@@ -643,6 +645,27 @@ export interface LeadNoteView {
   /** Carimbo de tempo real — renderizado em horário local, não em UTC. */
   createdAt: string;
 }
+
+// ==========================================
+// Disponibilidade de datas (RF-V2-13 a RF-V2-15)
+// ==========================================
+
+/** Uma data com o status declarado pelo proprietário. */
+export interface DateAvailabilityView {
+  date: string;
+  status: DateAvailabilityStatus;
+  /** Observação interna — **ausente** na resposta pública (RF-V2-14). */
+  note?: string | null;
+}
+
+export const upsertDateAvailabilitySchema = z.object({
+  status: dateAvailabilityStatusSchema,
+  note: z.string().max(280).nullable().optional(),
+});
+
+export type UpsertDateAvailabilityInput = z.infer<
+  typeof upsertDateAvailabilitySchema
+>;
 
 // ==========================================
 // Agenda de eventos (RF31)

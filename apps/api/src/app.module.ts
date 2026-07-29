@@ -8,6 +8,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { ItemsModule } from "./items/items.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PublicModule } from "./public/public.module.js";
+import { AvailabilityModule } from "./availability/availability.module.js";
 import { LeadsModule } from "./leads/leads.module.js";
 import { ProposalsModule } from "./proposals/proposals.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
@@ -32,6 +33,7 @@ import { MeModule } from "./me/me.module.js";
     PublicModule,
     // RF-V2-08: agendador do cron de expiração de propostas.
     ScheduleModule.forRoot(),
+    AvailabilityModule,
     LeadsModule,
     ProposalsModule,
     FinanceModule,
