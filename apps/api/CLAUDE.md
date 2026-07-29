@@ -140,6 +140,28 @@ aceita mais `status`/`lostReason` — o `updateLeadSchema` nem tem os campos, pa
 - **"Não perdido" virou `NEGATIVE_LEAD_STATUSES`.** Com oito estados, `status <> 'perdido'` deixava
   cancelado e expirado ocupando a agenda e disparando alerta de conflito. Use o helper, não o literal.
 
+## Jobs agendados (RF-V2-08)
+
+`ScheduleModule.forRoot()` em [`app.module.ts`](src/app.module.ts); o único job hoje é
+[`leads/expiration.service.ts`](src/leads/expiration.service.ts). Três regras ao adicionar outro:
+
+- **Advisory lock, sempre.** Atrás de um LB há mais de uma instância e todas acordam na mesma hora.
+  `pg_try_advisory_lock` com chave fixa faz uma só trabalhar; as outras saem sem log (acontece toda
+  hora, por definição). O `pg_advisory_unlock` vai no **`finally`** — lock preso mata todos os
+  ciclos seguintes.
+- **O job usa o mesmo caminho de código do usuário.** A expiração chama `LeadsService.transition`
+  com ator `SYSTEM_ACTOR` e papel `"system"`, e não um `UPDATE` direto: é o que garante transação,
+  guards e log de auditoria. Mais curto seria deixar o histórico mentindo.
+- **`try/catch` por registro, não por ciclo**, e teto de lote (100). Uma linha inconsistente não
+  pode segurar as outras 99; o que sobrar entra no ciclo seguinte.
+
+**Idempotência (RNF-V2-03) não precisa de código próprio:** o compare-and-swap do `transition`
+(`WHERE status = <origem>`) faz a segunda passada não encontrar a linha. O mesmo mecanismo cobre a
+corrida real — usuário aprova a proposta entre o `SELECT` e o `UPDATE`, o cron leva 409 e a decisão
+do usuário ganha.
+
+`run()` é público de propósito: dá para disparar um ciclo à mão de um `ApplicationContext`.
+
 ## Multi-tenancy (RNF05)
 
 **Regra dura: toda query operacional injeta `organizationId`.** Use os helpers de

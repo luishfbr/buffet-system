@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AppController } from "./app.controller.js";
@@ -29,6 +30,8 @@ import { MeModule } from "./me/me.module.js";
     ItemsModule,
     PackagesModule,
     PublicModule,
+    // RF-V2-08: agendador do cron de expiração de propostas.
+    ScheduleModule.forRoot(),
     LeadsModule,
     ProposalsModule,
     FinanceModule,

@@ -126,6 +126,9 @@ export interface TransitionActor {
   name: string;
 }
 
+/** O cron da expiração (RF-V2-08) não tem usuário por trás. */
+export const SYSTEM_ACTOR: TransitionActor = { userId: null, name: "Sistema" };
+
 /** Transação do Drizzle, para os guards receberem a mesma conexão da escrita. */
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
