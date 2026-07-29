@@ -17,6 +17,12 @@ import {
   type LeadStatus,
   type MemberRole,
 } from "./domain.js";
+import {
+  adjustmentKindSchema,
+  adjustmentModeSchema,
+  pricingTypeSchema,
+  type PricingType,
+} from "./pricing.js";
 
 /** A money value as a plain decimal string with up to 2 decimals, e.g. "150.00". */
 export const moneySchema = z
@@ -27,6 +33,44 @@ export const moneySchema = z
 // Catalog: Items (dishes / drinks / services) — RF01–RF12
 // ============================================================
 
+/**
+ * Campos de precificação (RF-V2-09). Compartilhados entre create e update, com
+ * as regras condicionais aplicadas por um refine comum — `PER_UNIT_AUTO` sem
+ * `guestsPerUnit` é um item que o motor de cálculo não consegue precificar, e
+ * deixar isso passar transforma um erro de cadastro em erro na proposta.
+ */
+const pricingFields = {
+  pricingType: pricingTypeSchema.optional(),
+  minQty: z.coerce.number().int().min(0).max(9999).nullable().optional(),
+  maxQty: z.coerce.number().int().min(1).max(9999).nullable().optional(),
+  guestsPerUnit: z.coerce.number().int().min(1).max(10000).nullable().optional(),
+};
+
+interface PricingShape {
+  pricingType?: PricingType;
+  minQty?: number | null;
+  maxQty?: number | null;
+  guestsPerUnit?: number | null;
+}
+
+const AUTO_NEEDS_GUESTS_PER_UNIT = {
+  check: (v: PricingShape) =>
+    v.pricingType !== "PER_UNIT_AUTO" || v.guestsPerUnit != null,
+  opts: {
+    message: "Informe quantos convidados cada unidade atende",
+    path: ["guestsPerUnit"],
+  },
+};
+
+const MIN_NOT_ABOVE_MAX = {
+  check: (v: PricingShape) =>
+    v.minQty == null || v.maxQty == null || v.minQty <= v.maxQty,
+  opts: {
+    message: "A quantidade mínima não pode passar da máxima",
+    path: ["maxQty"],
+  },
+};
+
 export const createItemSchema = z
   .object({
     name: z.string().min(1, "Nome obrigatório").max(120),
@@ -34,18 +78,25 @@ export const createItemSchema = z
     category: z.enum(DISH_CATEGORIES).optional(),
     basePrice: moneySchema,
     isActive: z.boolean().optional(),
+    ...pricingFields,
   })
   .refine((v) => v.type === "dish" || v.category === undefined, {
     message: "Categoria só se aplica a pratos",
     path: ["category"],
-  });
+  })
+  .refine(AUTO_NEEDS_GUESTS_PER_UNIT.check, AUTO_NEEDS_GUESTS_PER_UNIT.opts)
+  .refine(MIN_NOT_ABOVE_MAX.check, MIN_NOT_ABOVE_MAX.opts);
 
-export const updateItemSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  category: z.enum(DISH_CATEGORIES).nullable().optional(),
-  basePrice: moneySchema.optional(),
-  isActive: z.boolean().optional(),
-});
+export const updateItemSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    category: z.enum(DISH_CATEGORIES).nullable().optional(),
+    basePrice: moneySchema.optional(),
+    isActive: z.boolean().optional(),
+    ...pricingFields,
+  })
+  .refine(AUTO_NEEDS_GUESTS_PER_UNIT.check, AUTO_NEEDS_GUESTS_PER_UNIT.opts)
+  .refine(MIN_NOT_ABOVE_MAX.check, MIN_NOT_ABOVE_MAX.opts);
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
@@ -160,6 +211,105 @@ export type TransitionLeadInput = z.infer<typeof transitionLeadSchema>;
  * mesmo motivo do `LeadNoteView.authorName`; o cron grava aqui um rótulo de
  * sistema em vez de um usuário.
  */
+// ==========================================
+// Compositor de proposta (RF-V2-09 / RF-V2-10)
+// ==========================================
+
+/**
+ * Uma linha da proposta: **ou** um pacote **ou** um item avulso. O mesmo
+ * invariante do CHECK no banco, afirmado aqui para o erro chegar como validação
+ * de campo em vez de 500 do Postgres.
+ */
+export const proposalLineSchema = z
+  .object({
+    packageId: z.string().nullable().optional(),
+    itemId: z.string().nullable().optional(),
+    /** Só usada em `PER_UNIT`; ignorada nos demais tipos. */
+    quantity: z.coerce.number().int().min(0).max(9999).nullable().optional(),
+  })
+  .refine((v) => Boolean(v.packageId) !== Boolean(v.itemId), {
+    message: "Cada linha deve ser um pacote ou um item, nunca os dois",
+    path: ["itemId"],
+  });
+
+export const proposalAdjustmentSchema = z.object({
+  kind: adjustmentKindSchema,
+  mode: adjustmentModeSchema,
+  value: moneySchema,
+  label: z.string().max(120).nullable().optional(),
+});
+
+/**
+ * Escrita da composição inteira de uma vez (PUT), não item a item.
+ *
+ * O total da proposta é função do conjunto: gravar linha a linha deixaria a
+ * negociação passando por estados intermediários que ninguém pediu, e cada um
+ * deles teria que ser recalculado e exibido.
+ */
+export const putProposalSchema = z.object({
+  lines: z.array(proposalLineSchema).max(50),
+  adjustments: z.array(proposalAdjustmentSchema).max(20),
+});
+
+export type ProposalLineInputDto = z.infer<typeof proposalLineSchema>;
+export type ProposalAdjustmentInput = z.infer<typeof proposalAdjustmentSchema>;
+export type PutProposalInput = z.infer<typeof putProposalSchema>;
+
+/** Uma linha já resolvida e precificada pelo servidor. */
+export interface ProposalLineView {
+  id: string;
+  packageId: string | null;
+  itemId: string | null;
+  /** Snapshot do nome no momento da leitura — o catálogo pode mudar depois. */
+  name: string;
+  pricingType: PricingType;
+  basePrice: string;
+  minQty: number | null;
+  maxQty: number | null;
+  guestsPerUnit: number | null;
+  /** Quantidade efetiva: informada em `PER_UNIT`, derivada nos demais. */
+  quantity: number;
+  subtotal: string;
+  /**
+   * Por que esta linha não pôde ser precificada, se for o caso.
+   *
+   * A leitura da proposta **nunca falha por dado guardado**: uma linha pode
+   * virar inválida depois de salva (o proprietário aperta o `minQty` do item, a
+   * negociação perde o número de convidados) e derrubar a resposta inteira
+   * trancaria o usuário fora da própria proposta, sem tela para consertar. A
+   * linha entra valendo zero e explicando o problema; quem recusa entrada
+   * inválida é o PUT.
+   */
+  error: string | null;
+}
+
+export interface ProposalAdjustmentView extends ProposalAdjustmentInput {
+  id: string;
+  /** Quanto este ajuste moveu o total, em reais. */
+  amount: string;
+}
+
+/**
+ * A proposta em elaboração, já calculada. O servidor é a autoridade sobre o
+ * total: o cliente recalcula com as mesmas funções puras só para não piscar
+ * enquanto o usuário digita.
+ */
+export interface ProposalView {
+  lines: ProposalLineView[];
+  adjustments: ProposalAdjustmentView[];
+  subtotal: string;
+  discountTotal: string;
+  feeTotal: string;
+  total: string;
+  /**
+   * Convidados usados no cálculo. `null` bloqueia os tipos que dependem dele —
+   * a UI usa isto para explicar por que uma linha não tem preço.
+   */
+  guestCount: number | null;
+  /** Composição só é editável em negociação não terminal. */
+  editable: boolean;
+}
+
 export interface LeadStatusLogView {
   id: string;
   /**

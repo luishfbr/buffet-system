@@ -8,6 +8,7 @@ import { ItemsModule } from "./items/items.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PublicModule } from "./public/public.module.js";
 import { LeadsModule } from "./leads/leads.module.js";
+import { ProposalsModule } from "./proposals/proposals.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
 import { UploadsModule } from "./uploads/uploads.module.js";
 import { PageSettingsModule } from "./page-settings/page-settings.module.js";
@@ -29,6 +30,7 @@ import { MeModule } from "./me/me.module.js";
     PackagesModule,
     PublicModule,
     LeadsModule,
+    ProposalsModule,
     FinanceModule,
     UploadsModule,
     PageSettingsModule,

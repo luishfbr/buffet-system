@@ -14,6 +14,34 @@ import type {
 import { DB } from "../database/database.module.js";
 import { scopedWhere } from "../common/tenant.js";
 
+/**
+ * Colunas de precificação (RF-V2-09), no formato de spread condicional que o
+ * repo usa para update parcial.
+ *
+ * Trocar de tipo **limpa os campos do tipo anterior**: um item que era
+ * `PER_UNIT_AUTO` e vira `FIXED` carregando um `guestsPerUnit` órfão faz o
+ * formulário reabrir com lixo e confunde na próxima edição.
+ */
+function pricingColumns(input: CreateItemInput | UpdateItemInput) {
+  if (input.pricingType === undefined) {
+    return {
+      ...(input.minQty !== undefined ? { minQty: input.minQty } : {}),
+      ...(input.maxQty !== undefined ? { maxQty: input.maxQty } : {}),
+      ...(input.guestsPerUnit !== undefined
+        ? { guestsPerUnit: input.guestsPerUnit }
+        : {}),
+    };
+  }
+  const perUnit = input.pricingType === "PER_UNIT";
+  const auto = input.pricingType === "PER_UNIT_AUTO";
+  return {
+    pricingType: input.pricingType,
+    minQty: perUnit ? (input.minQty ?? null) : null,
+    maxQty: perUnit ? (input.maxQty ?? null) : null,
+    guestsPerUnit: auto ? (input.guestsPerUnit ?? null) : null,
+  };
+}
+
 @Injectable()
 export class ItemsService {
   constructor(@Inject(DB) private readonly db: Database) {}
@@ -44,6 +72,7 @@ export class ItemsService {
         category: input.category ?? null,
         basePrice: input.basePrice,
         isActive: input.isActive ?? true,
+        ...pricingColumns(input),
       })
       .returning();
     return row!;
@@ -65,6 +94,7 @@ export class ItemsService {
           ? { basePrice: input.basePrice }
           : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...pricingColumns(input),
       })
       .where(scopedWhere(schema.items, orgId, eq(schema.items.id, id)))
       .returning();
@@ -86,6 +116,22 @@ export class ItemsService {
     if (dep) {
       throw new ConflictException(
         "Item vinculado a um pacote. Inative-o em vez de excluir."
+      );
+    }
+
+    /**
+     * RF-V2-09: mesma trava para proposta em elaboração. A FK de
+     * `budget_line_items` é sem `onDelete` de propósito — sem esta checagem o
+     * Postgres devolveria 500 em vez de explicar o que fazer.
+     */
+    const [inProposal] = await this.db
+      .select({ id: schema.budgetLineItems.id })
+      .from(schema.budgetLineItems)
+      .where(eq(schema.budgetLineItems.itemId, id))
+      .limit(1);
+    if (inProposal) {
+      throw new ConflictException(
+        "Item usado em uma proposta. Inative-o em vez de excluir."
       );
     }
 

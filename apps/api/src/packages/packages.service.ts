@@ -146,6 +146,18 @@ export class PackagesService {
         "Pacote usado em negociações. Inative-o em vez de excluir."
       );
     }
+    // RF-V2-09: idem para proposta em elaboração — a FK de `budget_line_items`
+    // é sem `onDelete`, então sem esta checagem o Postgres devolve 500.
+    const [inProposal] = await this.db
+      .select({ id: schema.budgetLineItems.id })
+      .from(schema.budgetLineItems)
+      .where(eq(schema.budgetLineItems.packageId, id))
+      .limit(1);
+    if (inProposal) {
+      throw new ConflictException(
+        "Pacote usado em uma proposta. Inative-o em vez de excluir."
+      );
+    }
     await this.db
       .delete(schema.packages)
       .where(scopedWhere(schema.packages, orgId, eq(schema.packages.id, id)));
