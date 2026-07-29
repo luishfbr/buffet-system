@@ -244,6 +244,16 @@ Singleton em [`src/lib/auth-client.ts`](src/lib/auth-client.ts)
   passa pelo `updatePageSettingsSchema` antes de entrar na prévia, para ela mostrar o texto já
   normalizado. `LeadForm` recebe `preview` e não envia nada; a política de preço (RF27) é aplicada
   pelo `applyPricePolicy` de `@buffet/shared`, o mesmo que a API usa.
+- **Disponibilidade de datas** (`components/agenda/availability-panel.tsx`, `components/public/availability-calendar.tsx`,
+  `lib/availability.ts`): o proprietário marca uma data na própria agenda, ao lado dos eventos do dia —
+  a pergunta "posso aceitar mais um evento aqui?" se responde olhando o que já está marcado, e uma
+  tela separada obrigaria a comparar duas visões do mesmo calendário. No `MonthGrid` a
+  disponibilidade é um **anel** e um ponto, não o fundo: o fundo já codifica conflito de agenda
+  (RF21) e as duas informações dividem a mesma célula. A paleta é semáforo
+  (verde/âmbar/vermelho) e **não** usa `--brand` — reaproveitar a cor da marca faria "quase cheio"
+  parecer destaque em vez de aviso. No portal o calendário é **informativo**: data vermelha continua
+  clicável e o formulário continua enviável, porque o buffet pode abrir exceção e um aviso virado
+  trava recusaria um cliente que o dono aceitaria.
 - **Financeiro** (`components/finance/*` + `dashboard/finance/page.tsx`): `SchedulePanel` aparece
   quando `hasSchedule(leadStatus)` — `aprovado` **ou** `fechado`. São duas perguntas diferentes e
   ambas vivem em `@buffet/shared`: `canCreateSchedule` (gerar parcelas é ato sobre negociação viva,

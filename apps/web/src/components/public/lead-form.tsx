@@ -12,6 +12,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AvailabilityCalendar } from "@/components/public/availability-calendar";
 import { FormError } from "@/components/ui/form-error";
 import { whatsappUrl } from "@/components/public/contacts";
 import { cn } from "@/lib/utils";
@@ -220,6 +221,15 @@ export function LeadForm({
           onChange={(e) => setCustomerEmail(e.target.value)}
         />
       </div>
+      {/* RF-V2-14: calendário acima do campo de data. Informativo — clicar
+          preenche o campo, e nenhuma data bloqueia o envio. */}
+      <AvailabilityCalendar
+        slug={slug}
+        value={eventDate}
+        onSelect={setEventDate}
+        preview={preview}
+      />
+
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label htmlFor="date">Data do evento</Label>

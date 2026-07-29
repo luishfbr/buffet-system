@@ -25,6 +25,11 @@ const DEMO_PASSWORD = "demo12345";
 const DEMO_SLUG = "buffet-demonstracao";
 const INVITE_EMAIL = "novo.funcionario@buffetsystem.com";
 
+/** `YYYY-MM-DD` UTC — o formato de `date_availability.date` (RF-V2-13). */
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 /** Midnight UTC, `offset` days from today (negative = past). */
 function day(offset: number): Date {
   const d = new Date();
@@ -396,6 +401,19 @@ async function main() {
   if (statusLogRows.length > 0) {
     await db.insert(schema.budgetStatusLog).values(statusLogRows);
   }
+
+  /**
+   * Disponibilidade de datas (RF-V2-13). Só as datas configuradas viram linha —
+   * o resto é `disponivel` por omissão, então marcar poucas já basta para o
+   * calendário do portal ficar com cara de calendário de verdade.
+   */
+  await db.insert(schema.dateAvailability).values([
+    { organizationId: orgId, date: iso(day(12)), status: "indisponivel", note: "Buffet fechado — manutenção do salão" },
+    { organizationId: orgId, date: iso(day(13)), status: "indisponivel", note: "Buffet fechado — manutenção do salão" },
+    { organizationId: orgId, date: iso(day(20)), status: "quase_cheio", note: "Já temos o evento da Larissa" },
+    { organizationId: orgId, date: iso(day(30)), status: "quase_cheio" },
+    { organizationId: orgId, date: iso(day(45)), status: "indisponivel", note: "Evento fechado de outro cliente" },
+  ]);
 
   // --- Payment schedules for the approved leads (RF23/RF24) --------------
   // Covers every state the finance screen renders: pago, pendente, vencido,

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
-import type { AgendaResponse } from "@buffet/shared";
+import type { AgendaResponse, DateAvailabilityView } from "@buffet/shared";
 import { api, errorMessage } from "@/lib/api";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton, SkeletonList } from "@/components/ui/skeleton";
@@ -17,6 +17,9 @@ import {
   todayUTC,
 } from "@/lib/calendar";
 import { MonthGrid } from "@/components/agenda/month-grid";
+import { AvailabilityPanel } from "@/components/agenda/availability-panel";
+import { availabilityIndex } from "@/lib/availability";
+import { useRole } from "@/lib/use-role";
 import { MonthNav } from "@/components/agenda/month-nav";
 import { DayList } from "@/components/agenda/day-list";
 
@@ -45,7 +48,9 @@ function AgendaView() {
   const [selected, setSelected] = useState(initialDay);
   const [data, setData] = useState<AgendaResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const { isOwner } = useRole();
   const [error, setError] = useState<unknown>(null);
+  const [availability, setAvailability] = useState<DateAvailabilityView[]>([]);
 
   // Busca o mês inteiro com folga de uma semana de cada lado: o grid mostra os
   // dias vizinhos que completam a primeira e a última semana.
@@ -60,10 +65,16 @@ function AgendaView() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const res = await api.get<AgendaResponse>(
-      `/leads/agenda?from=${range.from}&to=${range.to}`
-    );
+    // RF-V2-15: eventos e disponibilidade são a mesma tela; buscar em paralelo
+    // evita o mês aparecer sem as cores por um instante.
+    const [res, avail] = await Promise.all([
+      api.get<AgendaResponse>(`/leads/agenda?from=${range.from}&to=${range.to}`),
+      api.get<DateAvailabilityView[]>(
+        `/availability?from=${range.from}&to=${range.to}`
+      ),
+    ]);
     setData(res);
+    setAvailability(avail);
     setLoading(false);
   }, [range.from, range.to]);
 
@@ -79,6 +90,11 @@ function AgendaView() {
     [data?.events]
   );
   const dayEvents = eventsByDay.get(selected) ?? [];
+  const availabilityByDay = useMemo(
+    () => availabilityIndex(availability),
+    [availability]
+  );
+  const selectedAvailability = availability.find((a) => a.date === selected);
 
   function goToToday() {
     const today = todayUTC();
@@ -120,6 +136,7 @@ function AgendaView() {
               <MonthGrid
                 month={month}
                 eventsByDay={eventsByDay}
+                availability={availabilityByDay}
                 selected={selected}
                 onSelect={setSelected}
               />
@@ -131,6 +148,21 @@ function AgendaView() {
               <SkeletonList rows={3} label="Carregando eventos do dia" />
             ) : (
               <DayList day={selected} events={dayEvents} />
+            )}
+
+            {/* RF-V2-13: marcar data é configuração do buffet — owner-only,
+                como a página pública e o financeiro. */}
+            {isOwner && !loading && (
+              <AvailabilityPanel
+                date={selected}
+                current={selectedAvailability}
+                onSaved={(row) =>
+                  setAvailability((prev) => [
+                    ...prev.filter((a) => a.date !== row.date),
+                    ...(row.status === "disponivel" && !row.note ? [] : [row]),
+                  ])
+                }
+              />
             )}
 
             {/* Sem data definida o lead não aparece na agenda. Dizer isso evita

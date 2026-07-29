@@ -1,6 +1,11 @@
 "use client";
 
-import type { AgendaEvent } from "@buffet/shared";
+import {
+  DATE_AVAILABILITY_LABELS,
+  type AgendaEvent,
+  type DateAvailabilityStatus,
+} from "@buffet/shared";
+import { AVAILABILITY_STYLE, availabilityOf } from "@/lib/availability";
 import { cn } from "@/lib/utils";
 import {
   WEEKDAY_LABELS,
@@ -23,11 +28,14 @@ import {
 export function MonthGrid({
   month,
   eventsByDay,
+  availability,
   selected,
   onSelect,
 }: {
   month: Date;
   eventsByDay: Map<string, AgendaEvent[]>;
+  /** RF-V2-15: mesma fonte que o portal público lê — as duas visões concordam. */
+  availability: Map<string, DateAvailabilityStatus>;
   selected: string | null;
   onSelect: (iso: string) => void;
 }) {
@@ -64,6 +72,10 @@ export function MonthGrid({
               const conflict = events.length > 1;
               const isToday = iso === today;
               const isSelected = iso === selected;
+              const status = availabilityOf(availability, iso);
+              // `disponivel` é o padrão: marcar visualmente todo dia normal
+              // encheria o mês de verde e apagaria o sinal dos que importam.
+              const marked = status !== "disponivel";
 
               return (
                 <td key={iso} className="p-0 align-top">
@@ -79,16 +91,22 @@ export function MonthGrid({
                         : `, ${events.length} evento${events.length > 1 ? "s" : ""}${
                             conflict ? " — conflito de agenda" : ""
                           }`
-                    }`}
+                    }${marked ? `, ${DATE_AVAILABILITY_LABELS[status]}` : ""}`}
                     className={cn(
                       "flex h-20 w-full flex-col items-start gap-1 rounded-md border p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       outside && "opacity-40",
                       isSelected
                         ? "border-brand bg-brand/10"
                         : "hover:bg-accent/50",
-                      conflict && !isSelected && "border-brand/50 bg-brand/5"
+                      conflict && !isSelected && "border-brand/50 bg-brand/5",
+                      // Anel, não fundo: o fundo já codifica conflito de agenda,
+                      // e as duas informações precisam caber na mesma célula.
+                      marked && `ring-2 ${AVAILABILITY_STYLE[status].ring}`
                     )}
                   >
+                    <span
+                      className="flex w-full items-center justify-between gap-1"
+                    >
                     <span
                       className={cn(
                         "text-xs tabular-nums",
@@ -98,6 +116,16 @@ export function MonthGrid({
                       )}
                     >
                       {day.getUTCDate()}
+                    </span>
+                    {marked && (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          AVAILABILITY_STYLE[status].dot
+                        )}
+                      />
+                    )}
                     </span>
 
                     {events.length > 0 && (

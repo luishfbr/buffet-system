@@ -57,7 +57,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 1. **Signup + Onboarding** (`/signup` → `/onboarding`): o proprietário cria a conta e, no fluxo guiado, cria a organização (vira `owner`) e cadastra o catálogo inicial — pratos, bebidas, serviços e pacotes (RF00).
 2. **Catálogo** (`/dashboard/catalog`): revisa e amplia pratos, bebidas, serviços e pacotes com preço por convidado (RF01–RF16), incluindo até 10 fotos por pacote (RF28).
 3. **Página pública** (`/dashboard/pagina`, só owner): escolhe o layout entre Vitrine, Elegante e Direto (RF26), sobe logo e capa, escolhe a cor da marca e o tema, escreve os próprios textos, ordena e destaca os pacotes da vitrine e cadastra os canais de contato (RF25–RF27).
-4. **Captação pública** (`/{slug}`): a partir do link público exibido no dashboard, o cliente preenche o formulário, vê a estimativa `preço × convidados` e gera um lead (RF17/RF18).
+4. **Captação pública** (`/{slug}`): a partir do link público exibido no dashboard, o cliente vê o calendário dos próximos 60 dias com a disponibilidade de cada data (RF-V2-14 — informativo, nunca bloqueia), preenche o formulário, vê a estimativa `preço × convidados` e gera um lead (RF17/RF18).
 5. **Funil** (`/dashboard/leads`): avança o lead pelos estados formais da negociação — cada mudança valida a transição, exige motivo nos encerramentos e fica registrada no histórico com autor e data (RF19–RF22, RF-V2-01 a RF-V2-04). Também vê o alerta de conflito de data e copia a proposta para o WhatsApp.
 6. **Proposta** (aba na negociação): monta pacote + serviços avulsos com os 4 tipos de precificação, aplica descontos e taxas, e ao enviar congela um snapshot — reajustar o catálogo depois não move o valor que o cliente recebeu (RF-V2-05, RF-V2-09 a RF-V2-12). Propostas sem resposta expiram sozinhas no prazo configurado (RF-V2-08).
 7. **Financeiro** (`/dashboard/finance`, só owner): ao aprovar, gera o cronograma de parcelas e dá baixa com método + comprovante (RF23/RF24).
@@ -83,6 +83,7 @@ O seed é **idempotente** (recriar limpa a versão anterior) e imprime as creden
 | Captação pública de leads | RF17, RF18 | ✅ |
 | Funil de negociações | RF19–RF22, RF35 (histórico datado com autoria) | ✅ |
 | Proposta: composição, congelamento e validade | RF-V2-05, RF-V2-07 (validade por tenant), RF-V2-09 (4 tipos de precificação), RF-V2-10 (descontos e taxas), RF-V2-11/RF-V2-12 (revisões versionadas), RNF-V2-02 | ✅ |
+| Calendário de disponibilidade | RF-V2-13 (status por data), RF-V2-14 (calendário no portal público), RF-V2-15 (agenda interna e portal na mesma fonte), RNF-V2-04 (cache de 5 min) | ✅ |
 | Expiração automática de propostas | RF-V2-08 (cron horário com advisory lock), RNF-V2-03 (idempotente, lote de 100) | ✅ |
 | Máquina de estados da negociação | RF-V2-01 (8 estados formais), RF-V2-02 (transições com guards), RF-V2-03 (motivo obrigatório), RF-V2-04 (log de auditoria), RNF-V2-01, RNF-V2-05, RNF-V2-06 | ✅ |
 | Financeiro (parcelas + baixa) | RF23, RF24 | ✅ |
