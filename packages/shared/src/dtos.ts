@@ -310,6 +310,59 @@ export interface ProposalView {
   editable: boolean;
 }
 
+// ==========================================
+// Revisões versionadas (RF-V2-11 / RF-V2-12)
+// ==========================================
+
+/** Uma linha congelada da revisão (RF-V2-05). */
+export interface RevisionItemView {
+  id: string;
+  name: string;
+  pricingType: PricingType;
+  basePrice: string;
+  quantity: number;
+  subtotal: string;
+}
+
+export interface RevisionView {
+  id: string;
+  revisionNumber: number;
+  validUntil: string;
+  subtotal: string;
+  totalValue: string;
+  adjustments: ProposalAdjustmentView[];
+  authorName: string;
+  createdAt: string;
+  items: RevisionItemView[];
+  /**
+   * `ativa` é a mais recente numa negociação ainda em `proposta_enviada`;
+   * `expirada` é a ativa que passou da validade; `superada` é qualquer
+   * anterior. Derivado no servidor para as duas telas não discordarem.
+   */
+  state: "ativa" | "expirada" | "superada";
+}
+
+/** RF-V2-07: o proprietário estica ou encurta a validade da proposta ativa. */
+export const updateValidUntilSchema = z.object({
+  validUntil: z.string().datetime("Data de validade inválida"),
+});
+
+export type UpdateValidUntilInput = z.infer<typeof updateValidUntilSchema>;
+
+/** Validade padrão configurável por tenant (RF-V2-07). */
+export const MIN_PROPOSAL_VALIDITY_DAYS = 1;
+export const MAX_PROPOSAL_VALIDITY_DAYS = 30;
+
+export const updateOrgSettingsSchema = z.object({
+  proposalValidityDays: z.coerce
+    .number()
+    .int()
+    .min(MIN_PROPOSAL_VALIDITY_DAYS, "Mínimo de 1 dia")
+    .max(MAX_PROPOSAL_VALIDITY_DAYS, "Máximo de 30 dias"),
+});
+
+export type UpdateOrgSettingsInput = z.infer<typeof updateOrgSettingsSchema>;
+
 export interface LeadStatusLogView {
   id: string;
   /**

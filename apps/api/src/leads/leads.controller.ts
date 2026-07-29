@@ -14,12 +14,14 @@ import {
   createLeadNoteSchema,
   transitionLeadSchema,
   updateLeadSchema,
+  updateValidUntilSchema,
   LEAD_STATUSES,
   type AgendaRangeInput,
   type CreateLeadNoteInput,
   type MemberRole,
   type TransitionLeadInput,
   type UpdateLeadInput,
+  type UpdateValidUntilInput,
   type LeadStatus,
 } from "@buffet/shared";
 import {
@@ -142,6 +144,29 @@ export class LeadsController {
       { userId: auth.user.id, name: auth.user.name },
       role
     );
+  }
+
+  // RF-V2-12: histórico completo de revisões, da mais recente para a mais antiga.
+  @Get(":id/revisions")
+  listRevisions(@ActiveOrg() orgId: string, @Param("id") id: string) {
+    return this.leads.listRevisions(orgId, id);
+  }
+
+  /**
+   * RF-V2-07: estica ou encurta a validade da proposta ativa.
+   *
+   * Owner-only e só com a proposta enviada — mexer na validade de uma
+   * negociação que ainda nem enviou proposta não significa nada.
+   */
+  @Roles("owner")
+  @Patch(":id/valid-until")
+  updateValidUntil(
+    @ActiveOrg() orgId: string,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateValidUntilSchema))
+    body: UpdateValidUntilInput
+  ) {
+    return this.leads.updateValidUntil(orgId, id, body);
   }
 
   // Edita dados do cliente/evento. Status não passa por aqui (RF-V2-02).

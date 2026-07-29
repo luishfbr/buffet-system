@@ -134,18 +134,20 @@ describe("expiração (RF-V2-08)", () => {
 
 describe("guards", () => {
   /**
-   * A implementação de um guard vive na API (precisa do banco) e o service
-   * **falha alto** se uma chave declarada aqui não tiver implementação. Declarar
-   * `revisaoAtiva` antes do RF-V2-11 faria a tabela afirmar uma pré-condição que
-   * ninguém verifica — pior que não ter guard.
+   * A implementação vive na API (precisa do banco) e o service **falha alto** se
+   * uma chave declarada aqui não tiver implementação — declarar sem implementar
+   * faria a tabela afirmar uma pré-condição que ninguém verifica.
    */
-  it("nenhuma transição declara guard antes de haver o que verificar", () => {
+  it("enviar proposta exige revisão ativa, e é a única com pré-condição", () => {
     const comGuard = LEAD_STATUSES.flatMap((from) =>
       LEAD_TRANSITIONS[from]
         .filter((r) => r.guards?.length)
         .map((r) => `${from}→${r.to}`)
     );
-    expect(comGuard).toEqual([]);
+    expect(comGuard).toEqual(["em_negociacao→proposta_enviada"]);
+    expect(findTransition("em_negociacao", "proposta_enviada")?.guards).toEqual([
+      "revisaoAtiva",
+    ]);
   });
 });
 

@@ -80,6 +80,24 @@ export const LEAD_BOARD_STATUSES: readonly LeadStatus[] = LEAD_STATUSES.filter(
 );
 
 /**
+ * RF-V2-06: o valor só aparece no painel a partir do envio da proposta.
+ *
+ * Antes disso o número é uma estimativa do formulário público, recalculada do
+ * catálogo a cada mudança — exibi-la como "o valor da negociação" convida a
+ * tratá-la como compromisso. A partir de `proposta_enviada` o total vem do
+ * snapshot congelado e é, aí sim, o que o cliente recebeu.
+ *
+ * Vale só para a visão interna: o formulário público segue mostrando a
+ * estimativa instantânea (RF18).
+ */
+export function visibleTotalValue(
+  status: LeadStatus,
+  totalValue: string | null
+): string | null {
+  return status === "novo" || status === "em_negociacao" ? null : totalValue;
+}
+
+/**
  * Cronograma de pagamentos (RF23) — **duas perguntas diferentes**, e confundi-las
  * foi o que quase deixou a v2 permitir criar cronograma numa negociação já
  * encerrada:

@@ -28,12 +28,14 @@ import {
   type LeadNote,
 } from "@buffet/db";
 import {
+  MAX_PROPOSAL_VALIDITY_DAYS,
   NEGATIVE_LEAD_STATUSES,
   buildProposalText,
   computeBudgetTotal,
   findTransition,
   invalidTransitionMessage,
   isNegativeLeadStatus,
+  visibleTotalValue,
   type AgendaEvent,
   type AgendaRangeInput,
   type AgendaResponse,
@@ -46,9 +48,11 @@ import {
   type TransitionRole,
   type TransitionRule,
   type UpdateLeadInput,
+  type UpdateValidUntilInput,
 } from "@buffet/shared";
 import { DB } from "../database/database.module.js";
 import { scopedWhere } from "../common/tenant.js";
+import { ProposalsService } from "../proposals/proposals.service.js";
 
 /**
  * Teto de linhas do `GET /leads`. Sem paginação (o kanban precisa de todos os
@@ -78,6 +82,14 @@ export function dayRange(date: Date): { start: Date; end: Date } {
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
   return { start, end };
+}
+
+/** `base + dias` corridos. Instante real, não data-sem-hora: a validade vence
+ *  na hora exata em que foi enviada, e o cron compara com `now()`. */
+function addDays(base: Date, days: number): Date {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
 /** Linha do histórico → contrato da API (RF35). */
@@ -163,7 +175,10 @@ export function assertTransitionAllowed(
 
 @Injectable()
 export class LeadsService {
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly proposals: ProposalsService
+  ) {}
 
   /**
    * Dynamic listing, optionally filtered by status (RF19). Org-scoped.
@@ -190,7 +205,7 @@ export class LeadsService {
         )
       : undefined;
 
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.leadsBudgets)
       .where(
@@ -203,6 +218,13 @@ export class LeadsService {
       )
       .orderBy(desc(schema.leadsBudgets.createdAt))
       .limit(LIST_LIMIT);
+
+    // RF-V2-06 aplicado no service, não na tela: o valor não deve nem sair
+    // daqui antes da proposta existir.
+    return rows.map((lead) => ({
+      ...lead,
+      totalValue: visibleTotalValue(lead.status as LeadStatus, lead.totalValue),
+    }));
   }
 
   /**
@@ -271,7 +293,10 @@ export class LeadsService {
               eventDate: row.eventDate.toISOString(),
               guestCount: row.guestCount,
               status: row.status as LeadStatus,
-              totalValue: row.totalValue,
+              totalValue: visibleTotalValue(
+                row.status as LeadStatus,
+                row.totalValue
+              ),
               packageName: row.packageName,
             },
           ]
@@ -357,8 +382,97 @@ export class LeadsService {
    */
   private readonly guards: Partial<Record<TransitionGuardKey, TransitionGuard>> =
     {
-      // revisaoAtiva: chega com o RF-V2-11 (snapshot da proposta).
+      revisaoAtiva: async (tx, lead) => {
+        if (!(await this.proposals.hasComposition(tx, lead.id))) {
+          throw new BadRequestException(
+            "Monte a proposta antes de enviá-la: adicione ao menos um pacote ou serviço na aba Proposta."
+          );
+        }
+      },
     };
+
+  /** RF-V2-12: revisões da negociação, com o estado de cada uma. */
+  async listRevisions(orgId: string, leadId: string) {
+    const lead = await this.getOwnedOrThrow(orgId, leadId);
+    return this.proposals.listRevisions(
+      orgId,
+      leadId,
+      lead.status as LeadStatus
+    );
+  }
+
+  /**
+   * RF-V2-07: ajusta a validade da proposta ativa.
+   *
+   * Só faz sentido com a proposta no ar; e o novo prazo precisa estar no
+   * futuro, senão o cron expiraria a negociação no ciclo seguinte — um jeito
+   * confuso de encerrar algo que tem transição própria para isso.
+   */
+  async updateValidUntil(
+    orgId: string,
+    id: string,
+    input: UpdateValidUntilInput
+  ): Promise<LeadDetail> {
+    const lead = await this.getOwnedOrThrow(orgId, id);
+    if (lead.status !== "proposta_enviada") {
+      throw new ConflictException(
+        "A validade só se aplica a uma proposta enviada e ainda em aberto"
+      );
+    }
+
+    const validUntil = new Date(input.validUntil);
+    if (validUntil.getTime() <= Date.now()) {
+      throw new BadRequestException("A validade tem que ser no futuro");
+    }
+    const maxAllowed = addDays(new Date(), MAX_PROPOSAL_VALIDITY_DAYS);
+    if (validUntil.getTime() > maxAllowed.getTime()) {
+      throw new BadRequestException(
+        `A validade não pode passar de ${MAX_PROPOSAL_VALIDITY_DAYS} dias a partir de hoje`
+      );
+    }
+
+    const row = await this.db.transaction(async (tx) => {
+      // A revisão ativa é a fonte de verdade; `leads_budgets.validUntil` é o
+      // espelho que o cron varre. Mover só um dos dois faria a tela e o cron
+      // discordarem sobre quando a proposta vence.
+      const [active] = await tx
+        .select({ id: schema.budgetRevisions.id })
+        .from(schema.budgetRevisions)
+        .where(eq(schema.budgetRevisions.budgetId, id))
+        .orderBy(desc(schema.budgetRevisions.revisionNumber))
+        .limit(1);
+      if (active) {
+        await tx
+          .update(schema.budgetRevisions)
+          .set({ validUntil })
+          .where(eq(schema.budgetRevisions.id, active.id));
+      }
+      const [updated] = await tx
+        .update(schema.leadsBudgets)
+        .set({ validUntil, updatedAt: new Date() })
+        .where(
+          scopedWhere(schema.leadsBudgets, orgId, eq(schema.leadsBudgets.id, id))
+        )
+        .returning();
+      return updated!;
+    });
+
+    return this.enrich(orgId, row);
+  }
+
+  /**
+   * Validade padrão do tenant (RF-V2-07). A linha é criada pela migration para
+   * toda org existente; o `?? 7` cobre uma org criada depois, cujo
+   * `org_settings` ainda não foi escrito.
+   */
+  private async proposalValidityDays(tx: Tx, orgId: string): Promise<number> {
+    const [row] = await tx
+      .select({ days: schema.orgSettings.proposalValidityDays })
+      .from(schema.orgSettings)
+      .where(eq(schema.orgSettings.organizationId, orgId))
+      .limit(1);
+    return row?.days ?? 7;
+  }
 
   /**
    * Executa uma transição de estado (RF-V2-02). **Único** caminho que escreve
@@ -393,6 +507,27 @@ export class LeadsService {
       }
 
       /**
+       * RF-V2-05/RF-V2-11: enviar a proposta congela a composição numa revisão
+       * nova. Dentro da mesma transação porque revisão sem mudança de status
+       * (ou vice-versa) descreveria algo que não aconteceu.
+       */
+      let snapshot: { totalValue: string; validUntil: Date } | null = null;
+      if (input.to === "proposta_enviada") {
+        const validUntil = addDays(
+          new Date(),
+          await this.proposalValidityDays(tx, orgId)
+        );
+        const created = await this.proposals.createRevision(
+          tx,
+          orgId,
+          lead,
+          { userId: actor.userId, name: actor.name },
+          validUntil
+        );
+        snapshot = { totalValue: created.totalValue, validUntil };
+      }
+
+      /**
        * Compare-and-swap no `status`: a cláusula exige que a negociação ainda
        * esteja no estado que validamos. Sem isso, dois usuários arrastando o
        * mesmo card no quadro fazem last-writer-wins — o segundo grava por cima
@@ -406,6 +541,11 @@ export class LeadsService {
           // Motivo do encerramento fica denormalizado para a listagem não ter
           // que ir ao log; nos destinos não negativos ele é limpo.
           lostReason: isNegativeLeadStatus(input.to) ? reason : null,
+          // O total exibido passa a vir do snapshot, e `validUntil` alimenta o
+          // índice parcial que o cron de expiração varre (RF-V2-08).
+          ...(snapshot
+            ? { totalValue: snapshot.totalValue, validUntil: snapshot.validUntil }
+            : {}),
           updatedAt: new Date(),
         })
         .where(
@@ -497,7 +637,13 @@ export class LeadsService {
         ? this.countDateConflicts(orgId, lead.eventDate, lead.id)
         : Promise.resolve(0),
     ]);
-    return { ...lead, packageName: pkgRows[0]?.name ?? null, conflictCount };
+    return {
+      ...lead,
+      // RF-V2-06: antes do envio da proposta o painel não mostra valor.
+      totalValue: visibleTotalValue(lead.status as LeadStatus, lead.totalValue),
+      packageName: pkgRows[0]?.name ?? null,
+      conflictCount,
+    };
   }
 
   /** Generate the copy-ready proposal text for a negotiation (RF22). */

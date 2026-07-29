@@ -50,9 +50,9 @@ export interface TransitionRule {
 }
 
 /**
- * Vocabulário das pré-condições que dependem do banco. `revisaoAtiva` chega
- * junto com as revisões (RF-V2-11) — a chave existe aqui, mas **nenhuma regra a
- * declara ainda**, porque antes do snapshot não há o que verificar.
+ * Vocabulário das pré-condições que dependem do banco. `revisaoAtiva` exige que
+ * a proposta tenha ao menos uma linha antes de ser enviada (RF-V2-11) — enviar
+ * uma proposta vazia criaria uma revisão de R$ 0,00 que o cliente receberia.
  */
 export const TRANSITION_GUARD_KEYS = ["revisaoAtiva"] as const;
 export type TransitionGuardKey = (typeof TRANSITION_GUARD_KEYS)[number];
@@ -77,9 +77,12 @@ export const LEAD_TRANSITIONS: Record<
     cancelar,
   ],
   em_negociacao: [
-    // RF-V2-11 acrescenta aqui `guards: ["revisaoAtiva"]`, junto com a
-    // implementação do guard — não antes.
-    { to: "proposta_enviada", roles: BOTH, requiresReason: false },
+    {
+      to: "proposta_enviada",
+      roles: BOTH,
+      requiresReason: false,
+      guards: ["revisaoAtiva"],
+    },
     { to: "perdido", roles: BOTH, requiresReason: true },
     cancelar,
   ],
